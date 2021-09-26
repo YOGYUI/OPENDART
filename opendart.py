@@ -189,11 +189,13 @@ class OpenDart:
         if status != '000':
             raise ResponseException(int(status), message)
 
-    @staticmethod
-    def _createEmptyDataFrame(column_names: Union[List[str], dict]) -> pd.DataFrame:
+    def _createEmptyDataFrame(self, column_names: Union[List[str], dict]) -> pd.DataFrame:
         df_result = pd.DataFrame()
         if isinstance(column_names, dict):
-            column_names = list(column_names.values())
+            if self._rename_dataframe_column_names:
+                column_names = list(column_names.values())
+            else:
+                column_names = list(column_names.keys())
         for name in column_names:
             df_result[name] = None
         return df_result
@@ -1461,7 +1463,178 @@ class OpenDart:
             corpCode, dateBegin, dateEnd, "pifricDecsn.json", ColumnNames.rights_bonus_issue_decision)
         return df_result
 
-    # TODO: 감자 결정 ~
+    def getCapitalReductionDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020026
+        [주요사항보고서 주요정보::8.감자 결정]
+        주요사항보고서(감자 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get capital reduction decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "crDecsn.json", ColumnNames.capital_reduction_decision)
+        return df_result
+
+    def getBankManagementProcedureInitiateInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020027
+        [주요사항보고서 주요정보::9.채권은행 등의 관리절차 개시]
+        주요사항보고서(채권은행 등의 관리절차 개시) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get bank management procedure initiate info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "bnkMngtPcbg.json", ColumnNames.bank_management_procedure)
+        return df_result
+
+    def getLitigationInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020028
+        [주요사항보고서 주요정보::10.소송 등의 제기]
+        주요사항보고서(소송 등의 제기) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get litigation info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "lwstLg.json", ColumnNames.litigation)
+        return df_result
+
+    def getOverseasListingDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020029
+        [주요사항보고서 주요정보::11.해외 증권시장 주권등 상장 결정]
+        주요사항보고서(해외 증권시장 주권등 상장 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get overseas listing decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "ovLstDecsn.json", ColumnNames.overseas_listing_decision)
+        return df_result
+
+    def getOverseasDelistingDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020030
+        [주요사항보고서 주요정보::12.해외 증권시장 주권등 상장폐지 결정]
+        주요사항보고서(해외 증권시장 주권등 상장폐지 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get overseas delisting decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "ovDlstDecsn.json", ColumnNames.overseas_delisting_decision)
+        return df_result
+
+    def getOverseasListingInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020031
+        [주요사항보고서 주요정보::13.해외 증권시장 주권등 상장]
+        주요사항보고서(해외 증권시장 주권등 상장) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get overseas listing info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "ovLst.json", ColumnNames.overseas_listing)
+        return df_result
+
+    def getOverseasDelistingInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020032
+        [주요사항보고서 주요정보::14.해외 증권시장 주권등 상장폐지]
+        주요사항보고서(해외 증권시장 주권등 상장폐지) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get overseas delisting info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "ovDlst.json", ColumnNames.overseas_delisting)
+        return df_result
+
+    def getConvertibleBondsPublishDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020033
+        [주요사항보고서 주요정보::15.전환사채권 발행결정]
+        주요사항보고서(전환사채권 발행결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get convertible bonds publish decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "cvbdIsDecsn.json", ColumnNames.conv_bonds_publish_decision)
+        return df_result
+
+    def getBondWithWarrantPublishDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020034
+        [주요사항보고서 주요정보::16.신주인수권부사채권 발행결정]
+        주요사항보고서(신주인수권부사채권 발행결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get bond with warrant publish decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "bdwtIsDecsn.json", ColumnNames.bond_with_warrant_publish_decision)
+        return df_result
+
+    # TODO: 교환사채권 발행결정 ~
 
     """ 증권신고서 주요정보 API """
 
