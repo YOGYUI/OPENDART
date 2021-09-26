@@ -1,4 +1,5 @@
 # https://dart-fss.readthedocs.io/en/latest/dart_types.html
+"""
 dict_pblntf_ty = {
     "A": "정기공시",
     "B": "주요사항보고",
@@ -89,143 +90,668 @@ dict_rm = {
     "정": "본 보고서 제출 후 정정신고가 있으니 관련 보고서를 참조하시기 바람",
     "철": "본 보고서는 철회(간주)되었으니 관련 철회신고서(철회간주안내)를 참고하시기 바람"
 }
+"""
 
-columns_corp_code = {
-    'corp_code': '고유번호',
-    'corp_name': '정식명칭',
-    'stock_code': '종목코드',
-    'modify_date': '최종변경일자'
-}
 
-columns_search_document = {
-    'corp_cls': '법인구분',
-    'corp_name': '종목명(법인명)',
-    'corp_code': '고유번호',
-    'stock_code': '종목코드',
-    'report_nm': '보고서명',
-    'rcept_no': '접수번호',
-    'flr_nm': '공시 제출인명',
-    'rcept_dt': '접수일자',
-    'rm': '비고'
-}
-
-columns_major_stock_info = {
-    'rcept_no': '접수번호',
-    'rcept_dt': '접수일자',
-    'corp_code': '고유번호',
-    'cmpny_nm': '회사명',
-    'report_tp': '보고구분',
-    'repror': '대표보고자',
-    'stkqy': '보유주식등의 수',
-    'stkqy_irds': '보유주식등의 증감',
-    'stkrt': '보유비율',
-    'stkrt_irds': '	보유비율 증감',
-    'ctr_stkqy': '주요체결 주식등의 수',
-    'ctr_stkrt': '주요체결 보유비율',
-    'report_resn': '보고사유'
-}
-
-columns_executive_stock_info = {
-    'rcept_no': '접수번호',
-    'rcept_dt': '접수일자',
-    'corp_code': '고유번호',
-    'corp_name': '회사명',
-    'repror': '보고자',
-    'isu_exctv_rgist_at': '발행 회사 관계 임원(등기여부)',
-    'isu_exctv_ofcps': '발행 회사 관계 임원 직위',
-    'isu_main_shrholdr': '발행 회사 관계 주요 주주',
-    'sp_stock_lmp_cnt': '특정 증권 등 소유 수',
-    'sp_stock_lmp_irds_cnt': '특정 증권 등 소유 증감 수',
-    'sp_stock_lmp_rate': '특정 증권 등 소유 비율',
-    'sp_stock_lmp_irds_rate': '특정 증권 등 소유 증감 비율'
-}
-
-columns_financial_info = {
-    'corp_code': '고유번호',
-    'rcept_no': '접수번호',
-    'bsns_year': '사업연도',
-    'stock_code': '종목코드',
-    'reprt_code': '보고서코드',
-    'account_nm': '계정명',
-    'fs_div': '개별/연결구분',
-    'fs_nm': '개별/연결명',
-    'sj_div': '재무제표구분',
-    'sj_nm': '재무제표명',
-    'thstrm_nm': '당기명',
-    'thstrm_dt': '당기일자',
-    'thstrm_amount': '당기금액',
-    'thstrm_add_amount': '당기누적금액',
-    'frmtrm_nm': '전기명',
-    'frmtrm_dt': '전기일자',
-    'frmtrm_amount': '전기금액',
-    'frmtrm_add_amount': '전기누적금액',
-    'bfefrmtrm_nm': '전전기명',
-    'bfefrmtrm_dt': '전전기일자',
-    'bfefrmtrm_amount': '전전기금액',
-    'ord': '계정과목정렬순서'
-}
-
-columns_company_info = {
-    'corp_code': '고유번호',
-    'corp_name': '정식명칭',
-    'corp_name_eng': '영문명칭',
-    'stock_name': '종목명',
-    'stock_code': '종목코드',
-    'ceo_nm': '대표자명',
-    'corp_cls': '법인구분',
-    'jurir_no': '법인등록번호',
-    'bizr_no': '사업자등록번호',
-    'adres': '주소',
-    'hm_url': '홈페이지',
-    'ir_url': 'IR홈페이지',
-    'phn_no': '전화번호',
-    'fax_no': '팩스번호',
-    'induty_code': '업종코드',
-    'est_dt': '설립일',
-    'acc_mt': '결산월'
-}
-
-columns_declaration_info_normal = {
-    'rcept_no': '접수번호',
-    'corp_cls': '법인구분',
-    'corp_code': '고유번호',
-    'corp_name': '회사명',
-    'stn': '형태',
-    'bddd': '이사회 결의일',
-    'ctrd': '계약일',
-    'gmtsck_shddstd': '주주총회를 위한 주주확정일',
-    'ap_gmtsck': '승인을 위한 주주총회일',
-    'aprskh_pd_bgd': '주식매수청구권 행사 기간 및 가격(시작일)',
-    'aprskh_pd_edd': '주식매수청구권 행사 기간 및 가격(종료일)',
-    'aprskh_prc': '주식매수청구권 행사 기간 및 가격((주식매수청구가격-회사제시))',
-    'mgdt_etc': '합병기일등',
-    'rt_vl': '비율 또는 가액',
-    'exevl_int': '외부평가기관',
-    'grtmn_etc': '지급 교부금 등',
-    'rpt_rcpn': '주요사항보고서(접수번호)'
-}
-
-columns_declaration_info_stock = {
-    'rcept_no': '접수번호',
-    'corp_cls': '법인구분',
-    'corp_code': '고유번호',
-    'corp_name': '회사명',
-    'kndn': '종류',
-    'cnt': '수량',
-    'fv': '액면가액',
-    'slprc': '모집(매출)가액',
-    'slta': '모집(매출)총액'
-}
-
-columns_declaration_info_detail = {
-    'rcept_no': '접수번호',
-    'corp_cls': '법인구분',
-    'corp_code': '고유번호',
-    'corp_name': '공시대상회사명',
-    'cmpnm': '회사명',
-    'sen': '구분',
-    'tast': '총자산',
-    'cpt': '자본금',
-    'isstk_knd': '발행주식수(주식의종류)',
-    'isstk_cnt': '발행주식수(주식수)'
-}
+class ColumnNames:
+    corp_code = {
+        'corp_code': '고유번호',
+        'corp_name': '정식명칭',
+        'stock_code': '종목코드',
+        'modify_date': '최종변경일자'
+    }
+    search_document = {
+        'corp_cls': '법인구분',
+        'corp_name': '종목명(법인명)',
+        'corp_code': '고유번호',
+        'stock_code': '종목코드',
+        'report_nm': '보고서명',
+        'rcept_no': '접수번호',
+        'flr_nm': '공시 제출인명',
+        'rcept_dt': '접수일자',
+        'rm': '비고'
+    }
+    major_stock = {
+        'rcept_no': '접수번호',
+        'rcept_dt': '접수일자',
+        'corp_code': '고유번호',
+        'cmpny_nm': '회사명',
+        'report_tp': '보고구분',
+        'repror': '대표보고자',
+        'stkqy': '보유주식등의 수',
+        'stkqy_irds': '보유주식등의 증감',
+        'stkrt': '보유비율',
+        'stkrt_irds': '보유비율 증감',
+        'ctr_stkqy': '주요체결 주식등의 수',
+        'ctr_stkrt': '주요체결 보유비율',
+        'report_resn': '보고사유'
+    }
+    executive_stock = {
+        'rcept_no': '접수번호',
+        'rcept_dt': '접수일자',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'repror': '보고자',
+        'isu_exctv_rgist_at': '발행 회사 관계 임원(등기여부)',
+        'isu_exctv_ofcps': '발행 회사 관계 임원 직위',
+        'isu_main_shrholdr': '발행 회사 관계 주요 주주',
+        'sp_stock_lmp_cnt': '특정 증권 등 소유 수',
+        'sp_stock_lmp_irds_cnt': '특정 증권 등 소유 증감 수',
+        'sp_stock_lmp_rate': '특정 증권 등 소유 비율',
+        'sp_stock_lmp_irds_rate': '특정 증권 등 소유 증감 비율'
+    }
+    financial = {
+        'corp_code': '고유번호',
+        'rcept_no': '접수번호',
+        'bsns_year': '사업연도',
+        'stock_code': '종목코드',
+        'reprt_code': '보고서코드',
+        'account_nm': '계정명',
+        'fs_div': '개별/연결구분',
+        'fs_nm': '개별/연결명',
+        'sj_div': '재무제표구분',
+        'sj_nm': '재무제표명',
+        'thstrm_nm': '당기명',
+        'thstrm_dt': '당기일자',
+        'thstrm_amount': '당기금액',
+        'thstrm_add_amount': '당기누적금액',
+        'frmtrm_nm': '전기명',
+        'frmtrm_dt': '전기일자',
+        'frmtrm_amount': '전기금액',
+        'frmtrm_add_amount': '전기누적금액',
+        'bfefrmtrm_nm': '전전기명',
+        'bfefrmtrm_dt': '전전기일자',
+        'bfefrmtrm_amount': '전전기금액',
+        'ord': '계정과목정렬순서'
+    }
+    company = {
+        'corp_code': '고유번호',
+        'corp_name': '정식명칭',
+        'corp_name_eng': '영문명칭',
+        'stock_name': '종목명',
+        'stock_code': '종목코드',
+        'ceo_nm': '대표자명',
+        'corp_cls': '법인구분',
+        'jurir_no': '법인등록번호',
+        'bizr_no': '사업자등록번호',
+        'adres': '주소',
+        'hm_url': '홈페이지',
+        'ir_url': 'IR홈페이지',
+        'phn_no': '전화번호',
+        'fax_no': '팩스번호',
+        'induty_code': '업종코드',
+        'est_dt': '설립일',
+        'acc_mt': '결산월'
+    }
+    declaration_normal = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'stn': '형태',
+        'bddd': '이사회 결의일',
+        'ctrd': '계약일',
+        'gmtsck_shddstd': '주주총회를 위한 주주확정일',
+        'ap_gmtsck': '승인을 위한 주주총회일',
+        'aprskh_pd_bgd': '주식매수청구권 행사 기간 및 가격(시작일)',
+        'aprskh_pd_edd': '주식매수청구권 행사 기간 및 가격(종료일)',
+        'aprskh_prc': '주식매수청구권 행사 기간 및 가격((주식매수청구가격-회사제시))',
+        'mgdt_etc': '합병기일등',
+        'rt_vl': '비율 또는 가액',
+        'exevl_int': '외부평가기관',
+        'grtmn_etc': '지급 교부금 등',
+        'sbd': '청약기일',
+        'pymd': '납입기일',
+        'sband': '청약공고일',
+        'asand': '배정공고일',
+        'asstd': '배정기준일',
+        'exstk': '신주인수권에 관한 사항(행사대상증권)',
+        'exprc': '신주인수권에 관한 사항(행사가격)',
+        'expd': '신주인수권에 관한 사항(행사기간)',
+        'rpt_rcpn': '주요사항보고서(접수번호)',
+        'tm': '회차',
+        'bdnmn': '채무증권 명칭',
+        'slmth': '모집(매출)방법',
+        'fta': '권면(전자등록)총액',
+        'slta': '모집(매출)총액',
+        'isprc': '발행가액',
+        'intr': '이자율',
+        'isrr': '발행수익률',
+        'rpd': '상환기일',
+        'print_pymint': '원리금지급대행기관',
+        'mngt_cmp': '(사채)관리회사',
+        'cdrt_int': '신용등급(신용평가기관)',
+        'dpcrn': '표시통화',
+        'dpcr_amt': '표시통화기준발행규모',
+        'usarn': '사용지역',
+        'usntn': '사용국가',
+        'wnexpl_at': '원화 교환 예정 여부',
+        'udtintnm': '인수기관명',
+        'grt_int': '보증을 받은 경우(보증기관)',
+        'grt_amt': '보증을 받은 경우(보증금액)',
+        'icmg_mgknd': '담보 제공의 경우(담보의 종류)',
+        'icmg_mgamt': '담보 제공의 경우(담보금액)',
+        'estk_exstk': '지분증권과 연계된 경우(행사대상증권)',
+        'estk_exrt': '지분증권과 연계된 경우(권리행사비율)',
+        'estk_exprc': '지분증권과 연계된 경우(권리행사가격)',
+        'estk_expd': '지분증권과 연계된 경우(권리행사기간)',
+        'drcb_at': '파생결합사채해당여부',
+        'drcb_uast': '파생결합사채(기초자산)',
+        'drcb_optknd': '파생결합사채(옵션종류)',
+        'drcb_mtd': '파생결합사채(만기일)'
+    }
+    declaration_stock = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'kndn': '종류',
+        'cnt': '수량',
+        'fv': '액면가액',
+        'slprc': '모집(매출)가액',
+        'slta': '모집(매출)총액'
+    }
+    declaration_detail = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '공시대상회사명',
+        'cmpnm': '회사명',
+        'sen': '구분',
+        'tast': '총자산',
+        'cpt': '자본금',
+        'isstk_knd': '발행주식수(주식의종류)',
+        'isstk_cnt': '발행주식수(주식수)'
+    }
+    declaration_type = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'stksen': '증권의종류',
+        'stkcnt': '증권수량',
+        'fv': '액면가액',
+        'slprc': '모집(매출)가액',
+        'slta': '모집(매출)총액',
+        'slmthn': '모집(매출)방법'
+    }
+    declaration_takeover = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'tm': '회차',
+        'actsen': '인수인구분',
+        'actnmn': '인수인명',
+        'stksen': '증권의종류',
+        'udtcnt': '인수수량',
+        'udtamt': '인수금액',
+        'udtprc': '인수대가',
+        'udtmth': '인수방법'
+    }
+    declaration_purpose = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'tm': '회차',
+        'se': '구분',
+        'amt': '금액'
+    }
+    declaration_seller = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'tm': '회차',
+        'hdr': '보유자',
+        'rl_cmp': '회사와의관계',
+        'bfsl_hdstk': '매출전보유증권수',
+        'slstk': '매출증권수',
+        'atsl_hdstk': '매출후보유증권수'
+    }
+    declaration_putback = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'grtrs': '부여사유',
+        'exavivr': '행사가능 투자자',
+        'grtcnt': '부여수량',
+        'expd': '행사기간',
+        'exprc': '행사가격'
+    }
+    outstanding_balance = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'remndr_exprtn1': '잔여만기1',
+        'remndr_exprtn2': '잔여만기2',
+        'yy1_below': '1년 이하',
+        'yy1_excess_yy2_below': '1년초과 2년이하',
+        'yy1_excess_yy5_below': '1년초과 5년이하',
+        'yy2_excess_yy3_below': '2년초과 3년이하',
+        'yy3_excess_yy4_below': '3년초과 4년이하',
+        'yy4_excess_yy5_below': '4년초과 5년이하',
+        'yy5_excess_yy10_below': '5년초과 10년이하',
+        'yy10_excess_yy20_below': '10년초과 20년이하',
+        'yy10_excess_yy15_below': '10년초과 15년이하',
+        'yy15_excess_yy20_below': '15년초과 20년이하',
+        'yy20_excess_yy30_below': '20년초과 30년이하',
+        'yy3_excess': '3년 초과',
+        'yy10_excess': '10년초과',
+        'yy30_excess': '30년초과',
+        'de10_below': '10일 이하',
+        'de10_excess_de30_below': '10일초과 30일이하',
+        'de30_excess_de90_below': '30일초과 90일이하',
+        'de90_excess_de180_below': '90일초과 180일이하',
+        'de180_excess_yy1_below': '180일초과 1년이하',
+        'sm': '합계',
+        'isu_lmt': '발행 한도',
+        'remndr_lmt': '잔여 한도'
+    }
+    remuneration = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'se': '구분',
+        'nmpr': '인원수',
+        'fyer_salary_totamt': '연간급여 총액',
+        'jan_salary_am': '1인평균 급여액',
+        'rm': '비고',
+        'gmtsck_confm_amount': '주주총회 승인금액',
+        'pymnt_totamt': '보수총액',
+        'psn1_avrg_pymntamt': '1인당 평균보수액'
+    }
+    debt_securities = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'isu_cmpny': '발행회사',
+        'scrits_knd_nm': '증권종류',
+        'isu_mth_nm': '발행방법',
+        'isu_de': '발행일자',
+        'facvalu_totamt': '권면(전자등록)총액',
+        'intrt': '이자율',
+        'evl_grad_instt': '평가등급(평가기관)',
+        'mtd': '만기일',
+        'repy_at': '상환여부',
+        'mngt_cmpny': '주관회사'
+    }
+    equity_usage_detail = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'se_nm': '구분',
+        'tm': '회차',
+        'pay_de': '납입일',
+        'pay_amount': '납입금액',
+        'on_dclrt_cptal_use_plan': '신고서상 자금사용 계획',
+        'cptal_use_plan': '자금사용 계획',
+        'real_cptal_use_sttus': '실제 자금사용 현황',
+        'rs_cptal_use_plan_useprps': '증권신고서 등의 자금사용 계획(사용용도)',
+        'rs_cptal_use_plan_prcure_amount': '증권신고서 등의 자금사용 계획(조달금액)',
+        'mtrpt_cptal_use_plan_useprps': '주요사항보고서의 자금사용 계획(사용용도)',
+        'mtrpt_cptal_use_plan_prcure_amount': '주요사항보고서의 자금사용 계획(조달금액)',
+        'real_cptal_use_dtls_cn': '실제 자금사용 내역(내용)',
+        'real_cptal_use_dtls_amount': '실제 자금사용 내역(금액)',
+        'dffrnc_occrrnc_resn': '차이발생 사유 등'
+    }
+    stock_quantity = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'se': '구분',
+        'isu_stock_totqy': '발행할 주식의 총수',
+        'now_to_isu_stock_totqy': '현재까지 발행한 주식의 총수',
+        'now_to_dcrs_stock_totqy': '현재까지 감소한 주식의 총수',
+        'redc': '감자',
+        'profit_incnr': '이익소각',
+        'rdmstk_repy': '상환주식의 상환',
+        'etc': '기타',
+        'istc_totqy': '발행주식의 총수',
+        'tesstk_co': '자기주식수',
+        'distb_stock_co': '유통주식수'
+    }
+    audit_opinion = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'bsns_year': '사업연도',
+        'adtor': '감사인',
+        'adt_opinion': '감사의견',
+        'adt_reprt_spcmnt_matter': '감사보고서 특기사항',
+        'emphs_matter': '강조사항 등',
+        'core_adt_matter': '핵심감사사항'
+    }
+    audit_service_contract = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'bsns_year': '사업연도',
+        'adtor': '감사인',
+        'cn': '내용',
+        'mendng': '보수',
+        'tot_reqre_time': '총소요시간',
+        'adt_cntrct_dtls_mendng': '감사계약내역(보수)',
+        'adt_cntrct_dtls_time': '감사계약내역(시간)',
+        'real_exc_dtls_mendng': '실제수행내역(보수)',
+        'real_exc_dtls_time': '실제수행내역(시간)'
+    }
+    non_audit_service_contract = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'bsns_year': '사업연도',
+        'cntrct_cncls_de': '계약체결일',
+        'servc_cn': '용역내용',
+        'servc_exc_pd': '용역수행기간',
+        'servc_mendng': '용역보수',
+        'rm': '비고'
+    }
+    outside_director = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'drctr_co': '이사의 수',
+        'otcmp_drctr_co': '사외이사 수',
+        'apnt': '사외이사 변동현황(선임)',
+        'rlsofc': '사외이사 변동현황(해임)',
+        'mdstrm_resig': '사외이사 변동현황(중도퇴임)'
+    }
+    capital_inc_dec = {
+        'bsns_year': '사업연도',
+        'reprt_code': '보고서 코드',
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '법인명',
+        'isu_dcrs_de': '주식발행 감소일자',
+        'isu_dcrs_stle': '발행 감소 형태',
+        'isu_dcrs_stock_knd': '발행 감소 주식 종류',
+        'isu_dcrs_qy': '발행 감소 수량',
+        'isu_dcrs_mstvdv_fval_amount': '발행 감소 주당 액면 가액',
+        'isu_dcrs_mstvdv_amount': '발행 감소 주당 가액'
+    }
+    dividend_detail = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '법인명',
+        'se': '구분',
+        'stock_knd': '주식 종류',
+        'thstrm': '당기',
+        'frmtrm': '전기',
+        'lwfr': '전전기'
+    }
+    treasury_stock = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '법인명',
+        'acqs_mth1': '취득방법 대분류',
+        'acqs_mth2': '취득방법 중분류',
+        'acqs_mth3': '취득방법 소분류',
+        'stock_knd': '주식 종류',
+        'bsis_qy': '기초 수량',
+        'change_qy_acqs': '변동 수량 취득',
+        'change_qy_dsps': '변동 수량 처분',
+        'change_qy_incnr': '변동 수량 소각',
+        'trmend_qy': '기말 수량',
+        'rm': '비고'
+    }
+    majority_shareholder = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '법인명',
+        'nm': '성명',
+        'relate': '관계',
+        'stock_knd': '주식 종류',
+        'bsis_posesn_stock_co': '기초 소유 주식 수',
+        'bsis_posesn_stock_qota_rt': '기초 소유 주식 지분율',
+        'trmend_posesn_stock_co': '기말 소유 주식 수',
+        'trmend_posesn_stock_qota_rt': '기말 소유 주식 지분율',
+        'rm': '비고'
+    }
+    majority_shareholder_change = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '법인명',
+        'change_on': '변동일',
+        'mxmm_shrholdr_nm': '최대주주명',
+        'posesn_stock_co': '소유주식수',
+        'qota_rt': '지분율',
+        'change_cause': '변동원인',
+        'rm': '비고'
+    }
+    minority_shareholder = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '법인명',
+        'se': '구분',
+        'shrholdr_co': '주주수',
+        'shrholdr_tot_co': '전체 주주수',
+        'shrholdr_rate': '주주 비율',
+        'hold_stock_co': '보유 주식수',
+        'stock_tot_co': '총발행 주식수',
+        'hold_stock_rate': '보유 주식 비율'
+    }
+    executives_status = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '법인명',
+        'nm': '성명',
+        'sexdstn': '성별',
+        'birth_ym': '출생년월',
+        'ofcps': '직위',
+        'rgist_exctv_at': '등기 임원 여부',
+        'fte_at': '상근 여부',
+        'chrg_job': '담당 업무',
+        'main_career': '주요 경력',
+        'mxmm_shrholdr_relate': '최대 주주 관계',
+        'hffc_pd': '재직 기간',
+        'tenure_end_on': '임기 만료일'
+    }
+    employee_status = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '법인명',
+        'fo_bbm': '사업부문',
+        'sexdstn': '성별',
+        'reform_bfe_emp_co_rgllbr': '개정 전 직원 수 정규직',
+        'reform_bfe_emp_co_cnttk': '개정 전 직원 수 계약직',
+        'reform_bfe_emp_co_etc': '개정 전 직원 수 기타',
+        'rgllbr_co': '정규직 수',
+        'rgllbr_abacpt_labrr_co': '정규직 단시간 근로자 수',
+        'cnttk_co': '계약직 수',
+        'cnttk_abacpt_labrr_co': '계약직 단시간 근로자 수',
+        'sm': '합계',
+        'avrg_cnwk_sdytrn': '평균 근속 연수',
+        'fyer_salary_totamt': '연간 급여 총액',
+        'jan_salary_am': '1인평균 급여액',
+        'rm': '비고'
+    }
+    indivisual_officer_remuneration = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '법인명',
+        'nm': '이름',
+        'ofcps': '직위',
+        'mendng_totamt': '보수 총액',
+        'mendng_totamt_ct_incls_mendng': '보수 총액 비 포함 보수'
+    }
+    entire_officer_remuneration = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '법인명',
+        'nmpr': '인원수',
+        'mendng_totamt': '보수 총액',
+        'jan_avrg_mendng_am': '1인 평균 보수 액',
+        'rm': '비고'
+    }
+    other_corp_investment = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'inv_prm': '법인명',
+        'frst_acqs_de': '최초 취득 일자',
+        'invstmnt_purps': '출자 목적',
+        'frst_acqs_amount': '최초 취득 금액',
+        'bsis_blce_qy': '기초 잔액 수량',
+        'bsis_blce_qota_rt': '기초 잔액 지분율',
+        'bsis_blce_acntbk_amount': '기초 잔액 장부 가액',
+        'incrs_dcrs_acqs_dsps_qy': '증가 감소 취득 처분 수량',
+        'incrs_dcrs_acqs_dsps_amount': '증가 감소 취득 처분 금액',
+        'incrs_dcrs_evl_lstmn': '증가 감소 평가 손액',
+        'trmend_blce_qy': '기말 잔액 수량',
+        'trmend_blce_qota_rt': '기말 잔액 지분율',
+        'trmend_blce_acntbk_amount': '기말 잔액 장부 가액',
+        'recent_bsns_year_fnnr_sttus_tot_assets': '최근 사업 연도 재무 현황 총 자산',
+        'recent_bsns_year_fnnr_sttus_thstrm_ntpf': '최근 사업 연도 재무 현황 당기 순이익'
+    }
+    bankruptcy = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'df_cn': '부도내용',
+        'df_amt': '부도금액',
+        'df_bnk': '부도발생은행',
+        'dfd': '최종부도(당좌거래정지)일자',
+        'df_rs': '부도사유 및 경위'
+    }
+    suspension = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'bsnsp_rm': '영업정지 분야',
+        'bsnsp_amt': '영업정지 내역(영업정지금액)',
+        'rsl': '영업정지 내역(최근매출총액)',
+        'sl_vs': '영업정지 내역(매출액 대비)',
+        'ls_atn': '영업정지 내역(대규모법인여부)',
+        'krx_stt_atn': '영업정지 내역(거래소 의무공시 해당 여부)',
+        'bsnsp_cn': '영업정지 내용',
+        'bsnsp_rs': '영업정지사유',
+        'ft_ctp': '향후대책',
+        'bsnsp_af': '영업정지영향',
+        'bsnspd': '영업정지일자',
+        'bddd': '이사회결의일(결정일)',
+        'od_a_at_t': '사외이사 참석여부(참석)',
+        'od_a_at_b': '사외이사 참석여부(불참)',
+        'adt_a_atn': '감사(감사위원) 참석여부'
+    }
+    rehabilitation = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'apcnt': '신청인 (회사와의 관계)',
+        'cpct': '관할법원',
+        'rq_rs': '신청사유',
+        'rqd': '신청일자',
+        'ft_ctp_sc': '향후대책 및 일정'
+    }
+    dissolution = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'ds_rs': '해산사유',
+        'ds_rsd': '해산사유발생일(결정일)',
+        'od_a_at_t': '사외이사 참석여부(참석)',
+        'od_a_at_b': '사외이사 참석여부(불참)',
+        'adt_a_atn': '감사(감사위원) 참석 여부'
+    }
+    rights_issue_decision = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'nstk_ostk_cnt': '신주의 종류와 수(보통주식 (주))',
+        'nstk_estk_cnt': '신주의 종류와 수(기타주식 (주))',
+        'fv_ps': '1주당 액면가액 (원)',
+        'bfic_tisstk_ostk': '증자전 발행주식총수 (주)(보통주식 (주))',
+        'bfic_tisstk_estk': '증자전 발행주식총수 (주)(기타주식 (주))',
+        'fdpp_fclt': '자금조달의 목적(시설자금 (원))',
+        'fdpp_bsninh': '자금조달의 목적(영업양수자금 (원))',
+        'fdpp_op': '자금조달의 목적(운영자금 (원))',
+        'fdpp_dtrp': '자금조달의 목적(채무상환자금 (원))',
+        'fdpp_ocsa': '자금조달의 목적(타법인 증권 취득자금 (원))',
+        'fdpp_etc': '자금조달의 목적(기타자금 (원))',
+        'ic_mthn': '증자방식',
+        'ssl_at': '공매도 해당여부',
+        'ssl_bgd': '공매도 시작일',
+        'ssl_edd': '공매도 종료일'
+    }
+    bonus_issue_decision = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'nstk_ostk_cnt': '신주의 종류와 수(보통주식 (주))',
+        'nstk_estk_cnt': '신주의 종류와 수(기타주식 (주))',
+        'fv_ps': '1주당 액면가액 (원)',
+        'bfic_tisstk_ostk': '증자전 발행주식총수 (주)(보통주식 (주))',
+        'bfic_tisstk_estk': '증자전 발행주식총수 (주)(기타주식 (주))',
+        'nstk_asstd': '신주배정기준일',
+        'nstk_ascnt_ps_ostk': '1주당 신주배정 주식수(보통주식 (주))',
+        'nstk_ascnt_ps_estk': '1주당 신주배정 주식수(기타주식 (주))',
+        'nstk_dividrk': '신주의 배당기산일',
+        'nstk_dlprd': '신주권교부예정일',
+        'nstk_lstprd': '신주의 상장 예정일',
+        'bddd': '이사회결의일(결정일)',
+        'od_a_at_t': '사외이사 참석여부(참석(명))',
+        'od_a_at_b': '사외이사 참석여부(불참(명))',
+        'adt_a_atn': '감사(감사위원)참석 여부'
+    }
+    rights_bonus_issue_decision = {
+        'rcept_no': '접수번호',
+        'corp_cls': '법인구분',
+        'corp_code': '고유번호',
+        'corp_name': '회사명',
+        'piic_nstk_ostk_cnt': '유상증자(신주의 종류와 수(보통주식 (주)))',
+        'piic_nstk_estk_cnt': '유상증자(신주의 종류와 수(기타주식 (주)))',
+        'piic_fv_ps': '유상증자(1주당 액면가액 (원))',
+        'piic_bfic_tisstk_ostk': '유상증자(증자전 발행주식총수 (주)(보통주식 (주)))',
+        'piic_bfic_tisstk_estk': '유상증자(증자전 발행주식총수 (주)(기타주식 (주)))',
+        'piic_fdpp_fclt': '유상증자(자금조달의 목적(시설자금 (원)))',
+        'piic_fdpp_bsninh': '유상증자(자금조달의 목적(영업양수자금 (원)))',
+        'piic_fdpp_op': '유상증자(자금조달의 목적(운영자금 (원)))',
+        'piic_fdpp_dtrp': '유상증자(자금조달의 목적(채무상환자금 (원)))',
+        'piic_fdpp_ocsa': '유상증자(자금조달의 목적(타법인 증권 취득자금 (원)))',
+        'piic_fdpp_etc': '유상증자(자금조달의 목적(기타자금 (원)))',
+        'piic_ic_mthn': '유상증자(증자방식)',
+        'fric_nstk_ostk_cnt': '무상증자(신주의 종류와 수(보통주식 (주)))',
+        'fric_nstk_estk_cnt': '무상증자(신주의 종류와 수(기타주식 (주)))',
+        'fric_fv_ps': '무상증자(1주당 액면가액 (원))',
+        'fric_bfic_tisstk_ostk': '무상증자(증자전 발행주식총수(보통주식 (주)))',
+        'fric_bfic_tisstk_estk': '무상증자(증자전 발행주식총수(기타주식 (주)))',
+        'fric_nstk_asstd': '무상증자(신주배정기준일)',
+        'fric_nstk_ascnt_ps_ostk': '무상증자(1주당 신주배정 주식수(보통주식 (주)))',
+        'fric_nstk_ascnt_ps_estk': '무상증자(1주당 신주배정 주식수(기타주식 (주)))',
+        'fric_nstk_dividrk': '무상증자(신주의 배당기산일)',
+        'fric_nstk_dlprd': '무상증자(신주권교부예정일)',
+        'fric_nstk_lstprd': '무상증자(신주의 상장 예정일)',
+        'fric_bddd': '무상증자(이사회결의일(결정일))',
+        'fric_od_a_at_t': '무상증자(사외이사 참석여부(참석(명)))',
+        'fric_od_a_at_b': '무상증자(사외이사 참석여부(불참(명)))',
+        'fric_adt_a_atn': '무상증자(감사(감사위원)참석 여부)'
+    }
