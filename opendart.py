@@ -2,6 +2,7 @@
 import os
 import io
 import re
+import sys
 import time
 import shutil
 import pickle
@@ -9,6 +10,7 @@ import zipfile
 import datetime
 import requests
 import lxml.html
+import subprocess
 import urllib.parse
 import pandas as pd
 import logging.handlers
@@ -16,8 +18,10 @@ from enum import Enum, auto
 from lxml import etree, html
 from typing import List, Union, Tuple
 from requests_html import HTMLSession
+from abc import ABCMeta, abstractmethod
 from config import OpenDartConfiguration
 from define import *
+from Util import Callback
 
 
 url_opendart = 'https://opendart.fss.or.kr/api/{}'
@@ -50,10 +54,13 @@ class ReportCode(Enum):
     ThirdQueater = '11014'
 
 
-class OpenDart:
+class OpenDartCore:
+    __metaclass__ = ABCMeta
+
     _df_corplist: pd.DataFrame = None
     _logger_console: logging.Logger
     _write_log_console_to_file: bool = False
+    _empty_dataframe_with_columns: bool = False
     _rename_dataframe_column_names: bool = True
 
     def __init__(self, api_key: str = None):
@@ -70,6 +77,9 @@ class OpenDart:
         self._initLoggerConsole()
 
         self._config = OpenDartConfiguration()
+
+        self._callback_response_exception = Callback(int, str)
+        self._callback_raw_html_download_done = Callback()
 
         if api_key is not None:
             self.setApiKey(api_key)
@@ -105,11 +115,41 @@ class OpenDart:
         if self._write_log_console_to_file:
             self._logger_console.info(strLogType + ' ' + message)
 
+    def _requestWithParameters(self, url: str, params: dict) -> requests.Response:
+        response = requests.get(url, params=params)
+        message = f"<status:{response.status_code}> "
+        message += f"<elapsed:{response.elapsed.microseconds/1000}ms> "
+        message += f"<url:{response.request.url}> "
+        self._log(message, LogType.API)
+        return response
+
+    def _requestAndGetContent(self, url: str, **kwargs) -> bytes:
+        params = self._makeRequestParameter(**kwargs)
+        resp = self._requestWithParameters(url, params)
+        return resp.content
+
+    def _requestAndGetJson(self, url: str, **kwargs) -> dict:
+        params = self._makeRequestParameter(**kwargs)
+        resp = self._requestWithParameters(url, params)
+        return resp.json()
+
+    def registerCallbackResponseException(self, func):
+        self._callback_response_exception.connect(func)
+
+    def registerCallbackDocumentRawHtmlDownloadDone(self, func):
+        self._callback_raw_html_download_done.connect(func)
+
     def isEnableWriteLogConsoleToFile(self) -> bool:
         return self._write_log_console_to_file
 
     def setEnableWriteLogConsoleToFile(self, enable: bool):
         self._write_log_console_to_file = enable
+
+    def isEnableEmptyDataframeWithColumns(self) -> bool:
+        return self._empty_dataframe_with_columns
+
+    def setEnableEmptyDataframeWithColumns(self, enable: bool):
+        self._empty_dataframe_with_columns = enable
 
     def isEnableRenameDataframeColumnNames(self) -> bool:
         return self._rename_dataframe_column_names
@@ -136,22 +176,22 @@ class OpenDart:
             info = zf.infolist()
             filenames = [x.filename for x in info]
             self._log("filenames in zip file contents: {}".format(', '.join(filenames)), LogType.Info)
-            dest_path = os.path.join(self._path_data_dir, dest_dir)
-            zf.extractall(dest_path)
+            path_dest = os.path.join(self._path_data_dir, dest_dir)
+            zf.extractall(path_dest)
             zf.close()
-            self._log(f"extracted {len(filenames)} file(s) to {dest_path}", LogType.Info)
+            self._log(f"extracted {len(filenames)} file(s) to {path_dest}", LogType.Info)
             return filenames
         except zipfile.BadZipfile:
             self._parseResultFromResponse(content)
 
-    @staticmethod
-    def _parseResultFromResponse(content: bytes):
+    def _parseResultFromResponse(self, content: bytes):
         node_result = etree.fromstring(content)
         node_status = node_result.find('status')
         node_message = node_result.find('message')
         status_code = int(node_status.text)
         message = node_message.text
         if status_code != 0:
+            self._callback_response_exception.emit(status_code, message)
             raise ResponseException(status_code, message)
 
     def clearDocumentFilesFromDataPath(self):
@@ -164,40 +204,24 @@ class OpenDart:
                 os.remove(filepath)
             self._log(f"removed {len(target_paths)} document files", LogType.Info)
 
-    def _requestWithParameters(self, url: str, params: dict) -> requests.Response:
-        response = requests.get(url, params=params)
-        message = f"<status:{response.status_code}> "
-        message += f"<elapsed:{response.elapsed.microseconds/1000}ms> "
-        message += f"<url:{response.request.url}> "
-        self._log(message, LogType.API)
-        return response
-
-    def _requestAndGetContent(self, url: str, **kwargs) -> bytes:
-        params = self._makeRequestParameter(**kwargs)
-        resp = self._requestWithParameters(url, params)
-        return resp.content
-
-    def _requestAndGetJson(self, url: str, **kwargs) -> dict:
-        params = self._makeRequestParameter(**kwargs)
-        resp = self._requestWithParameters(url, params)
-        return resp.json()
-
-    @staticmethod
-    def _checkResponseStatus(json_obj: dict):
+    def _checkResponseStatus(self, json_obj: dict):
         status = json_obj.get('status')
         message = json_obj.get('message')
         if status != '000':
-            raise ResponseException(int(status), message)
+            status_code = int(status)
+            self._callback_response_exception.emit(status_code, message)
+            raise ResponseException(status_code, message)
 
     def _createEmptyDataFrame(self, column_names: Union[List[str], dict]) -> pd.DataFrame:
         df_result = pd.DataFrame()
-        if isinstance(column_names, dict):
-            if self._rename_dataframe_column_names:
-                column_names = list(column_names.values())
-            else:
-                column_names = list(column_names.keys())
-        for name in column_names:
-            df_result[name] = None
+        if self._empty_dataframe_with_columns:
+            if isinstance(column_names, dict):
+                if self._rename_dataframe_column_names:
+                    column_names = list(column_names.values())
+                else:
+                    column_names = list(column_names.keys())
+            for name in column_names:
+                df_result[name] = None
         return df_result
 
     def _setReadyForCorporationDataFramePickleFile(self, reload: bool = False):
@@ -246,6 +270,208 @@ class OpenDart:
         with open(self._path_corp_df_pkl_file, 'wb') as fp:
             pickle.dump(self._df_corplist, fp)
 
+    def _removeDocumentRawFileInLocal(self, document_no: str):
+        path_file = os.path.join(self._path_data_dir, f'{document_no}.xml')
+        if os.path.isfile(path_file):
+            os.remove(path_file)
+
+    def _isDocumentRawFileExistInLocal(self, document_no: str) -> bool:
+        path_file = os.path.join(self._path_data_dir, f'{document_no}.xml')
+        return os.path.isfile(path_file)
+
+    def _solveDocumentRawFileEncodingIssue(self, document_no: str):
+        path_file = os.path.join(self._path_data_dir, f'{document_no}.xml')
+        if os.path.isfile(path_file):
+            regexAnnotation = re.compile(r"<주[^>]*>")
+
+            def replaceAnnotationBracket(source: str) -> str:
+                search = regexAnnotation.search(source)
+                result = source
+                if search is not None:
+                    span = search.span()
+                    result = source[:span[0]] + '&lt;' + source[span[0] + 1:span[1] - 1] + '&gt;' + source[span[1]:]
+                return result
+
+            with open(path_file, 'r', encoding='euc-kr') as fp:
+                doc_lines = fp.readlines()
+                for replace_set in self._config.doc_str_replace_list:
+                    src = replace_set[0]
+                    dest = replace_set[1]
+                    doc_lines = [x.replace(src, dest) for x in doc_lines]
+                doc_lines = [replaceAnnotationBracket(x) for x in doc_lines]
+
+            with open(path_file, 'w', encoding='utf-8') as fp:
+                fp.writelines(doc_lines)
+
+    def _requestAndRender(self, url: str) -> requests.models.Response:
+        session = HTMLSession()
+
+        response = session.get(url)
+        message = f"<status:{response.status_code}> "
+        message += f"<elapsed:{response.elapsed.microseconds / 1000}ms> "
+        message += f"<encoding:{response.html.encoding}> "
+        message += f"<url:{response.url}> "
+        self._log(message, LogType.API)
+
+        tm_start = time.perf_counter()
+        response.html.render()
+        elapsed = time.perf_counter() - tm_start
+        self._log(f"render done (elapsed: {elapsed} sec)", LogType.Info)
+
+        session.close()
+        return response
+
+    @staticmethod
+    def _getDocumentUrlFromViewerResponse(response: requests.models.Response):
+        element = response.html.lxml
+        tag_iframe = element.get_element_by_id("ifrm")
+        attrib_src = tag_iframe.attrib.get('src')
+        url = "https://dart.fss.or.kr{}".format(attrib_src)
+        return url
+
+    @staticmethod
+    def _modifyQueryValueOfDocumentUrl(url: str) -> str:
+        url_parsed = urllib.parse.urlparse(url)
+        queries = url_parsed.query.split('&')
+        queries_split = [x.split('=') for x in queries]
+        queries_dict = {}
+        for q in queries_split:
+            queries_dict[q[0]] = q[1]
+        queries_dict['offset'] = '0'
+        queries_dict['length'] = '0'
+        queries = '&'.join([f'{x[0]}={x[1]}' for x in queries_dict.items()])
+        url_parsed = url_parsed._replace(query=queries)
+        return url_parsed.geturl()
+
+    @staticmethod
+    def _modifyTagAttributesOfDocumentResponse(response: requests.models.Response) -> lxml.html.HtmlElement:
+        element = response.html.lxml
+        tag_link = element.find('.//link')
+        tag_link.attrib['href'] = "https://dart.fss.or.kr{}".format(tag_link.attrib['href'])
+        tags_img = element.findall('.//img')
+        for tag in tags_img:
+            tag.attrib['src'] = "https://dart.fss.or.kr{}".format(tag.attrib['src'])
+        return element
+
+    def _saveElementToLocalHtmlFile(self, html_element: lxml.html.HtmlElement, document_no: str, encoding: str):
+        str_enc = etree.tostring(html_element, encoding=encoding, method='html', pretty_print=True)
+        str_dec = str_enc.decode(encoding)
+        path_dest = os.path.join(self._path_data_dir, f'{document_no}.html')
+        with open(path_dest, 'w', encoding=encoding) as fp:
+            fp.write(str_dec)
+
+    def _isDocumentHtmlFileExistInLocal(self, document_no: str) -> bool:
+        path_file = os.path.join(self._path_data_dir, f'{document_no}.html')
+        return os.path.isfile(path_file)
+
+    def _removeDocumentHtmlFileInLocal(self, document_no: str):
+        path_file = os.path.join(self._path_data_dir, f'{document_no}.html')
+        if os.path.isfile(path_file):
+            os.remove(path_file)
+
+    def _makeDataFrameFromJsonList(self, json: dict, col_names: dict) -> pd.DataFrame:
+        data_list = json.get('list')
+        df = pd.DataFrame(data_list)
+        if self._rename_dataframe_column_names:
+            df.rename(columns=col_names, inplace=True)
+        return df
+
+    def _makeDataFrameFromJsonGroup(self, json: dict, title: str, col_names: dict) -> pd.DataFrame:
+        group = list(filter(lambda x: x.get('title') == title, json.get('group')))[0]
+        data_list = group.get('list')
+        df = pd.DataFrame(data_list)
+        if self._rename_dataframe_column_names:
+            df.rename(columns=col_names, inplace=True)
+        return df
+
+    def _isFinancialStatementsDirExistInLocal(self, receiptNo: str, reportCode: Union[ReportCode, str]) -> bool:
+        rptcode = reportCode.value if isinstance(reportCode, ReportCode) else reportCode
+        path_dir = os.path.join(self._path_data_dir, f'fs_{receiptNo}_{rptcode}')
+        return os.path.isdir(path_dir)
+
+    def _removeFinancialStatementsDirInLocal(self, receiptNo: str, reportCode: Union[ReportCode, str]):
+        rptcode = reportCode.value if isinstance(reportCode, ReportCode) else reportCode
+        path_dir = os.path.join(self._path_data_dir, f'fs_{receiptNo}_{rptcode}')
+        if os.path.isdir(path_dir):
+            shutil.rmtree(path_dir)
+
+    @staticmethod
+    def _getParamWithBeginEndDate(
+            corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> dict:
+        params = {'corp_code': corpCode.strip()}
+        if isinstance(dateBegin, datetime.date):
+            params['bgn_de'] = dateBegin.strftime('%Y%m%d')
+        else:
+            params['bgn_de'] = dateBegin.strip()
+        if isinstance(dateEnd, datetime.date):
+            params['end_de'] = dateEnd.strftime('%Y%m%d')
+        else:
+            params['end_de'] = dateEnd.strip()
+        return params
+
+    def _makeHighlightsDataFrameCommon(
+            self, corp_code: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date],
+            api: str, col_names: dict
+    ) -> pd.DataFrame:
+        params = self._getParamWithBeginEndDate(corp_code, dateBegin, dateEnd)
+        json = self._requestAndGetJson(url_opendart.format(api), **params)
+        try:
+            self._checkResponseStatus(json)
+        except ResponseException as e:
+            self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
+            return self._createEmptyDataFrame(col_names)
+        df_result = self._makeDataFrameFromJsonList(json, col_names)
+        return df_result
+
+    def _makeBusinessReportDataFrameCommon(
+            self, corp_code: str, year: int, rpt_code: str, api: str, col_names: dict
+    ) -> pd.DataFrame:
+        corp_code = corp_code.strip()
+        rpt_code = rpt_code.strip()
+        params = {'corp_code': corp_code, 'bsns_year': str(max(2015, year)), 'reprt_code': rpt_code}
+        json = self._requestAndGetJson(url_opendart.format(api), **params)
+        try:
+            self._checkResponseStatus(json)
+        except ResponseException as e:
+            self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
+            return self._createEmptyDataFrame(col_names)
+        df_result = self._makeDataFrameFromJsonList(json, col_names)
+        return df_result
+
+    def _makeFinancialDataFrameCommon(
+            self, corp_code: Union[str, List[str]], year: int, rpt_code: str, api: str, col_names: dict, **kwargs
+    ) -> pd.DataFrame:
+        if isinstance(corp_code, list):
+            corp_code = ','.join([x.strip() for x in corp_code])
+        else:
+            corp_code = corp_code.strip()
+        rpt_code = rpt_code.strip()
+        params = {'corp_code': corp_code, 'bsns_year': str(max(2015, year)), 'reprt_code': rpt_code}
+        for key, value in kwargs.items():
+            params[key] = value
+        json = self._requestAndGetJson(url_opendart.format(api), **params)
+        try:
+            self._checkResponseStatus(json)
+        except ResponseException as e:
+            self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
+            return self._createEmptyDataFrame(col_names)
+        df_result = self._makeDataFrameFromJsonList(json, col_names)
+        return df_result
+
+    @abstractmethod
+    def loadCorporationDataFrame(self, reload: bool = False) -> pd.DataFrame:
+        self._df_corplist = pd.DataFrame()
+        if self._rename_dataframe_column_names:
+            column_names = list(ColumnNames.corp_code.values())
+        else:
+            column_names = list(ColumnNames.corp_code.keys())
+        for name in column_names:
+            self._df_corplist[name] = None
+        return self._df_corplist
+
+
+class OpenDart(OpenDartCore):
     """ 공시정보 API """
 
     def searchDocument(
@@ -330,6 +556,7 @@ class OpenDart:
         :param corpCode: 공시대상회사의 고유번호(8자리)
         :return: pandas DataFrame
         """
+        corpCode = corpCode.strip()
         self._log(f"get company information (corp code: {corpCode})", LogType.Command)
         params = {'corp_code': corpCode}
         json = self._requestAndGetJson(url_opendart.format("company.json"), **params)
@@ -358,6 +585,7 @@ class OpenDart:
         :param document_no: 접수번호
         :param reload: 파일이 존재할 경우 삭제하고 다시 다운로드받을 지 여부
         """
+        document_no = document_no.strip()
         params = {'rcept_no': document_no}
         if reload:
             self._removeDocumentRawFileInLocal(document_no)
@@ -423,7 +651,7 @@ class OpenDart:
         return raw_string
 
     def downloadDocumentAsHtmlFile(
-            self, document_no: str, reload: bool = False
+            self, document_no: str, reload: bool = False, openFile: bool = False
     ) -> str:
         if reload:
             self._removeDocumentHtmlFileInLocal(document_no)
@@ -437,7 +665,17 @@ class OpenDart:
             encoding = response_document.html.encoding
             html_element = self._modifyTagAttributesOfDocumentResponse(response_document)
             self._saveElementToLocalHtmlFile(html_element, document_no, encoding)
+
+        self._callback_raw_html_download_done.emit()
+
         path_dest = os.path.join(self._path_data_dir, f'{document_no}.html')
+        if openFile and os.path.isfile(path_dest):
+            if sys.platform == 'win32':
+                os.startfile(path_dest)
+            else:
+                opener = "open" if sys.platform == "darwin" else "xdg-open"
+                subprocess.call([opener, path_dest])
+
         return path_dest
 
     def loadDocumentHtmlFileAsElementTree(
@@ -461,140 +699,13 @@ class OpenDart:
             self, name: str, match_exact: bool = False
     ) -> pd.DataFrame:
         search_result = self.searchCorporationCodeWithName(name, match_exact)
-        df_result = pd.DataFrame()
+        df_result = self._createEmptyDataFrame([])
         for elem in search_result:
             df_elem = self.getCompanyInformation(elem[1])
             df_result = df_result.append(df_elem)
         return df_result
 
-    def _removeDocumentRawFileInLocal(self, document_no: str):
-        path_file = os.path.join(self._path_data_dir, f'{document_no}.xml')
-        if os.path.isfile(path_file):
-            os.remove(path_file)
-
-    def _isDocumentRawFileExistInLocal(self, document_no: str) -> bool:
-        path_file = os.path.join(self._path_data_dir, f'{document_no}.xml')
-        return os.path.isfile(path_file)
-
-    def _solveDocumentRawFileEncodingIssue(self, document_no: str):
-        path_file = os.path.join(self._path_data_dir, f'{document_no}.xml')
-        if os.path.isfile(path_file):
-            regexAnnotation = re.compile(r"<주[^>]*>")
-
-            def replaceAnnotationBracket(source: str) -> str:
-                search = regexAnnotation.search(source)
-                result = source
-                if search is not None:
-                    span = search.span()
-                    result = source[:span[0]] + '&lt;' + source[span[0]+1:span[1]-1] + '&gt;' + source[span[1]:]
-                return result
-
-            with open(path_file, 'r', encoding='euc-kr') as fp:
-                doc_lines = fp.readlines()
-                for replace_set in self._config.doc_str_replace_list:
-                    src = replace_set[0]
-                    dest = replace_set[1]
-                    doc_lines = [x.replace(src, dest) for x in doc_lines]
-                doc_lines = [replaceAnnotationBracket(x) for x in doc_lines]
-
-            with open(path_file, 'w', encoding='utf-8') as fp:
-                fp.writelines(doc_lines)
-
-    def _requestAndRender(self, url: str) -> requests.models.Response:
-        session = HTMLSession()
-
-        response = session.get(url)
-        message = f"<status:{response.status_code}> "
-        message += f"<elapsed:{response.elapsed.microseconds/1000}ms> "
-        message += f"<encoding:{response.html.encoding}> "
-        message += f"<url:{response.url}> "
-        self._log(message, LogType.API)
-
-        tm_start = time.perf_counter()
-        response.html.render()
-        elapsed = time.perf_counter() - tm_start
-        self._log(f"render done (elapsed: {elapsed} sec)", LogType.Info)
-
-        session.close()
-        return response
-
-    @staticmethod
-    def _getDocumentUrlFromViewerResponse(response: requests.models.Response):
-        element = response.html.lxml
-        tag_iframe = element.get_element_by_id("ifrm")
-        attrib_src = tag_iframe.attrib.get('src')
-        url = "https://dart.fss.or.kr{}".format(attrib_src)
-        return url
-
-    @staticmethod
-    def _modifyQueryValueOfDocumentUrl(url: str) -> str:
-        url_parsed = urllib.parse.urlparse(url)
-        queries = url_parsed.query.split('&')
-        queries_split = [x.split('=') for x in queries]
-        queries_dict = {}
-        for q in queries_split:
-            queries_dict[q[0]] = q[1]
-        queries_dict['offset'] = '0'
-        queries_dict['length'] = '0'
-        queries = '&'.join([f'{x[0]}={x[1]}' for x in queries_dict.items()])
-        url_parsed = url_parsed._replace(query=queries)
-        return url_parsed.geturl()
-
-    @staticmethod
-    def _modifyTagAttributesOfDocumentResponse(response: requests.models.Response) -> lxml.html.HtmlElement:
-        element = response.html.lxml
-        tag_link = element.find('.//link')
-        tag_link.attrib['href'] = "https://dart.fss.or.kr{}".format(tag_link.attrib['href'])
-        tags_img = element.findall('.//img')
-        for tag in tags_img:
-            tag.attrib['src'] = "https://dart.fss.or.kr{}".format(tag.attrib['src'])
-        return element
-
-    def _saveElementToLocalHtmlFile(self, html_element: lxml.html.HtmlElement, document_no: str, encoding: str):
-        str_enc = etree.tostring(html_element, encoding=encoding, method='html', pretty_print=True)
-        str_dec = str_enc.decode(encoding)
-        path_dest = os.path.join(self._path_data_dir, f'{document_no}.html')
-        with open(path_dest, 'w', encoding=encoding) as fp:
-            fp.write(str_dec)
-
-    def _isDocumentHtmlFileExistInLocal(self, document_no: str) -> bool:
-        path_file = os.path.join(self._path_data_dir, f'{document_no}.html')
-        return os.path.isfile(path_file)
-
-    def _removeDocumentHtmlFileInLocal(self, document_no: str):
-        path_file = os.path.join(self._path_data_dir, f'{document_no}.html')
-        if os.path.isfile(path_file):
-            os.remove(path_file)
-
-    def _makeDataFrameFromJsonList(self, json: dict, col_names: dict) -> pd.DataFrame:
-        data_list = json.get('list')
-        df = pd.DataFrame(data_list)
-        if self._rename_dataframe_column_names:
-            df.rename(columns=col_names, inplace=True)
-        return df
-    
-    def _makeDataFrameFromJsonGroup(self, json: dict, title: str, col_names: dict) -> pd.DataFrame:
-        group = list(filter(lambda x: x.get('title') == title, json.get('group')))[0]
-        data_list = group.get('list')
-        df = pd.DataFrame(data_list)
-        if self._rename_dataframe_column_names:
-            df.rename(columns=col_names, inplace=True)
-        return df
-
     """ 사업보고서 주요정보 API """
-
-    def _makeBusinessReportDataFrameCommon(
-            self, corp_code: str, year: int, rpt_code: str, api: str, col_names: dict
-    ) -> pd.DataFrame:
-        params = {'corp_code': corp_code, 'bsns_year': str(max(2015, year)), 'reprt_code': rpt_code}
-        json = self._requestAndGetJson(url_opendart.format(api), **params)
-        try:
-            self._checkResponseStatus(json)
-        except ResponseException as e:
-            self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
-            return self._createEmptyDataFrame(col_names)
-        df_result = self._makeDataFrameFromJsonList(json, col_names)
-        return df_result
 
     def getContingentConvertibleBondOutstandingBalanceInfo(
             self, corpCode: str, year: int, reportCode: Union[ReportCode, str]
@@ -1171,18 +1282,12 @@ class OpenDart:
         :param reportCode: 보고서 코드
         :return: pandas DataFrame
         """
-        rptcode = reportCode.value if isinstance(reportCode, ReportCode) else reportCode
+        corpCode = corpCode.strip()
+        rptcode = reportCode.value if isinstance(reportCode, ReportCode) else reportCode.strip()
         info = f"(corp code: {corpCode}, year: {year}, report code: {rptcode})"
         self._log("get single financial information " + info, LogType.Command)
-        params = {'corp_code': corpCode, 'bsns_year': str(max(2015, year)), 'reprt_code': rptcode}
-        json = self._requestAndGetJson(url_opendart.format("fnlttSinglAcnt.json"), **params)
-        try:
-            self._checkResponseStatus(json)
-        except ResponseException as e:
-            self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
-            return self._createEmptyDataFrame(ColumnNames.financial)
-
-        df_result = self._makeDataFrameFromJsonList(json, ColumnNames.financial)
+        df_result = self._makeFinancialDataFrameCommon(
+            corpCode, year, rptcode, "fnlttSinglAcnt.json", ColumnNames.financial)
         return df_result
 
     def getMultiFinancialInformation(
@@ -1199,22 +1304,17 @@ class OpenDart:
         :param reportCode: 보고서 코드
         :return: pandas DataFrame
         """
-        rptcode = reportCode.value if isinstance(reportCode, ReportCode) else reportCode
+        corpCode = [x.strip() for x in corpCode]
+        rptcode = reportCode.value if isinstance(reportCode, ReportCode) else reportCode.strip()
         info = f"(corp code: {corpCode}, year: {year}, report code: {rptcode})"
         self._log("get multiple financial information " + info, LogType.Command)
-        params = {'corp_code': ','.join(corpCode), 'bsns_year': str(max(2015, year)), 'reprt_code': rptcode}
-        json = self._requestAndGetJson(url_opendart.format("fnlttMultiAcnt.json"), **params)
-        try:
-            self._checkResponseStatus(json)
-        except ResponseException as e:
-            self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
-            return self._createEmptyDataFrame(ColumnNames.financial)
-
-        df_result = self._makeDataFrameFromJsonList(json, ColumnNames.financial)
+        df_result = self._makeFinancialDataFrameCommon(
+            corpCode, year, rptcode, "fnlttMultiAcnt.json", ColumnNames.financial)
         return df_result
 
     def downloadFinancialStatementsRawFile(
-            self, receiptNo: str, reportCode: Union[ReportCode, str], reload: bool = False
+            self, receiptNo: str, reportCode: Union[ReportCode, str], reload: bool = False,
+            openFolder: bool = False
     ):
         """
         https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS003&apiId=2019019
@@ -1224,32 +1324,73 @@ class OpenDart:
         :param receiptNo: 접수번호
         :param reportCode: 보고서 코드
         :param reload: 디렉터리가 존재할 경우 삭제하고 다시 다운로드받을 지 여부
+        :param openFolder: 탐색기에서 다운로드받은 폴더를 열지 여부
         """
-        rptcode = reportCode.value if isinstance(reportCode, ReportCode) else reportCode
+        receiptNo = receiptNo.strip()
+        rptcode = reportCode.value if isinstance(reportCode, ReportCode) else reportCode.strip()
+        dest_dir = f'fs_{receiptNo}_{rptcode}'
+
         if reload:
             self._removeFinancialStatementsDirInLocal(receiptNo, rptcode)
         if not self._isFinancialStatementsDirExistInLocal(receiptNo, rptcode):
             info = f"(receipt no: {receiptNo}, report code: {rptcode})"
             self._log("download financial statements raw file " + info, LogType.Command)
             params = {'rcept_no': receiptNo, 'reprt_code': rptcode}
-            dest_dir = f'fs_{receiptNo}_{rptcode}'
             try:
                 self._requestAndExtractZipFile(url_opendart.format("fnlttXbrl.xml"), dest_dir, **params)
             except ResponseException as e:
                 self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
 
-    # TODO: 단일회사 전체 재무제표, XBRL택사노미재무제표양식
+        path_dest = os.path.join(self._path_data_dir, dest_dir)
+        if openFolder and os.path.isdir(path_dest):
+            if sys.platform == 'win32':
+                os.startfile(path_dest)
+            else:
+                opener = "open" if sys.platform == "darwin" else "xdg-open"
+                subprocess.call([opener, path_dest])
 
-    def _isFinancialStatementsDirExistInLocal(self, receiptNo: str, reportCode: Union[ReportCode, str]) -> bool:
-        rptcode = reportCode.value if isinstance(reportCode, ReportCode) else reportCode
-        path_dir = os.path.join(self._path_data_dir, f'fs_{receiptNo}_{rptcode}')
-        return os.path.isdir(path_dir)
+    def getEntireFinancialStatements(
+            self, corpCode: str, year: int, reportCode: Union[ReportCode, str], financialDivision: str):
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS003&apiId=2019020
+        [상장기업 재무정보::4.단일회사 전체 재무제표]
+        상장법인(금융업 제외)이 제출한 정기보고서 내에 XBRL재무제표의 모든계정과목을 제공합니다.
 
-    def _removeFinancialStatementsDirInLocal(self, receiptNo: str, reportCode: Union[ReportCode, str]):
-        rptcode = reportCode.value if isinstance(reportCode, ReportCode) else reportCode
-        path_dir = os.path.join(self._path_data_dir, f'fs_{receiptNo}_{rptcode}')
-        if os.path.isdir(path_dir):
-            shutil.rmtree(path_dir)
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param year: 사업연도, 2015년 이후 부터 정보제공
+        :param reportCode: 보고서 코드
+        :param financialDivision: 개별/연결 구분 (CFS: 연결재무제표, OFS: 재무제표)
+        :return: pandas DataFrame
+        """
+        corpCode = corpCode.strip()
+        rptcode = reportCode.value if isinstance(reportCode, ReportCode) else reportCode.strip()
+        info = f"(corp code: {corpCode}, year: {year}, report code: {rptcode}, fin-division: {financialDivision})"
+        self._log("get entire financial information " + info, LogType.Command)
+        df_result = self._makeFinancialDataFrameCommon(
+            corpCode, year, rptcode, "fnlttSinglAcntAll.json", ColumnNames.entire_financial_statements,
+            fs_div=financialDivision)
+        return df_result
+
+    def getXbrlTaxonomyFormat(self, div: str):
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS003&apiId=2020001
+        [상장기업 재무정보::5.XBRL택사노미재무제표양식]
+        금융감독원 회계포탈에서 제공하는 IFRS 기반 XBRL 재무제표 공시용 표준계정과목체계(계정과목)을 제공합니다.
+
+        :param div: 재무제표구분 - URL 재무제표구분 참조
+        :return: pandas DataFrame
+        """
+        info = f"(div: {div})"
+        self._log("get xbrl taxonomy format " + info, LogType.Command)
+        params = {'sj_div': div.strip()}
+        json = self._requestAndGetJson(url_opendart.format("xbrlTaxonomy.json"), **params)
+        try:
+            self._checkResponseStatus(json)
+        except ResponseException as e:
+            self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
+            return self._createEmptyDataFrame(ColumnNames.xbrl_taxonomy)
+        df_result = self._makeDataFrameFromJsonList(json, ColumnNames.xbrl_taxonomy)
+        return df_result
 
     """ 지분공시 종합정보 API """
 
@@ -1264,6 +1405,7 @@ class OpenDart:
         :param corpCode: 공시대상회사의 고유번호(8자리)
         :return: pandas DataFrame
         """
+        corpCode = corpCode.strip()
         self._log(f"get major stock information (corp code: {corpCode})", LogType.Command)
         params = {'corp_code': corpCode}
         json = self._requestAndGetJson(url_opendart.format("majorstock.json"), **params)
@@ -1287,6 +1429,7 @@ class OpenDart:
         :param corpCode: 공시대상회사의 고유번호(8자리)
         :return: pandas DataFrame
         """
+        corpCode = corpCode.strip()
         self._log(f"get executive stock information (corp code: {corpCode})", LogType.Command)
         params = {'corp_code': corpCode}
         json = self._requestAndGetJson(url_opendart.format("elestock.json"), **params)
@@ -1300,35 +1443,6 @@ class OpenDart:
         return df_result
 
     """ 주요사항보고서 주요정보 API """
-
-    @staticmethod
-    def _getParamWithBeginEndDate(
-            corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
-    ) -> dict:
-        params = {'corp_code': corpCode}
-        if isinstance(dateBegin, datetime.date):
-            params['bgn_de'] = dateBegin.strftime('%Y%m%d')
-        else:
-            params['bgn_de'] = dateBegin
-        if isinstance(dateEnd, datetime.date):
-            params['end_de'] = dateEnd.strftime('%Y%m%d')
-        else:
-            params['end_de'] = dateEnd
-        return params
-
-    def _makeHighlightsDataFrameCommon(
-            self, corp_code: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date],
-            api: str, col_names: dict
-    ) -> pd.DataFrame:
-        params = self._getParamWithBeginEndDate(corp_code, dateBegin, dateEnd)
-        json = self._requestAndGetJson(url_opendart.format(api), **params)
-        try:
-            self._checkResponseStatus(json)
-        except ResponseException as e:
-            self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
-            return self._createEmptyDataFrame(col_names)
-        df_result = self._makeDataFrameFromJsonList(json, col_names)
-        return df_result
 
     def getBankruptcyOccurrenceInfo(
             self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
@@ -1498,7 +1612,7 @@ class OpenDart:
         info = f"(corp code: {corpCode})"
         self._log("get bank management procedure initiate info " + info, LogType.Command)
         df_result = self._makeHighlightsDataFrameCommon(
-            corpCode, dateBegin, dateEnd, "bnkMngtPcbg.json", ColumnNames.bank_management_procedure)
+            corpCode, dateBegin, dateEnd, "bnkMngtPcbg.json", ColumnNames.bank_management_procedure_initiate)
         return df_result
 
     def getLitigationInfo(
@@ -1634,7 +1748,386 @@ class OpenDart:
             corpCode, dateBegin, dateEnd, "bdwtIsDecsn.json", ColumnNames.bond_with_warrant_publish_decision)
         return df_result
 
-    # TODO: 교환사채권 발행결정 ~
+    def getExchangeableBondsPublishDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020035
+        [주요사항보고서 주요정보::17.교환사채권 발행결정]
+        주요사항보고서(교환사채권 발행결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get exchangeable bonds publish decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "exbdIsDecsn.json", ColumnNames.exchangeable_bonds_publish_decision)
+        return df_result
+
+    def getBankManagementProcedureStopInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020036
+        [주요사항보고서 주요정보::18.채권은행 등의 관리절차 중단]
+        주요사항보고서(채권은행 등의 관리절차 중단) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get bank management procedure stop info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "bnkMngtPcsp.json", ColumnNames.bank_management_procedure_stop)
+        return df_result
+
+    def getAmortizationContingentConvertibleBondPublishDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020037
+        [주요사항보고서 주요정보::19.상각형 조건부자본증권 발행결정]
+        주요사항보고서(상각형 조건부자본증권 발행결정) 내에 주요 정보를 제공합니다.
+        상각형 조건부자본증권 = 후순위채권
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get amortization contingent convertible bond publish decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "wdCocobdIsDecsn.json", ColumnNames.amortization_cocobond_publish_decision)
+        return df_result
+
+    def getAssetTransferPutbackOptionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020018
+        [주요사항보고서 주요정보::20.자산양수도(기타), 풋백옵션]
+        주요사항보고서(자산양수도(기타), 풋백옵션) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get asset transfer putback option info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "astInhtrfEtcPtbkOpt.json", ColumnNames.asset_transfer_putback_option)
+        return df_result
+
+    def getOtherCorpStockEquitySecuritiesTransferDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020047
+        [주요사항보고서 주요정보::21.타법인 주식 및 출자증권 양도결정]
+        주요사항보고서(타법인 주식 및 출자증권 양도결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get other corp stock equity securities transfer decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "otcprStkInvscrTrfDecsn.json", ColumnNames.other_corp_stock_transfer_decision)
+        return df_result
+
+    def getTangibleAssetsTransferDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020045
+        [주요사항보고서 주요정보::22.유형자산 양도 결정]
+        주요사항보고서(유형자산 양도 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get tangible assets transfer decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "tgastTrfDecsn.json", ColumnNames.tangible_transfer_decision)
+        return df_result
+
+    def getTangibleAssetsAcquisitionDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020044
+        [주요사항보고서 주요정보::23.유형자산 양수 결정]
+        주요사항보고서(유형자산 양수 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get tangible assets acquisition decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "tgastInhDecsn.json", ColumnNames.tangible_acquisition_decision)
+        return df_result
+
+    def getOtherCorpStockEquitySecuritiesAcquisitionDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020046
+        [주요사항보고서 주요정보::24.타법인 주식 및 출자증권 양수결정]
+        주요사항보고서(타법인 주식 및 출자증권 양수결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get other corp stock equity securities acquisition decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "otcprStkInvscrInhDecsn.json", ColumnNames.other_corp_stock_acq_decision)
+        return df_result
+
+    def getBusinessTransferDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020043
+        [주요사항보고서 주요정보::25.영업양도 결정]
+        주요사항보고서(영업양도 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get business transfer decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "bsnTrfDecsn.json", ColumnNames.business_transfer_decision)
+        return df_result
+
+    def getBusinessAcquisitionDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020042
+        [주요사항보고서 주요정보::26.영업양수 결정]
+        주요사항보고서(영업양수 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get business acquisition decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "bsnInhDecsn.json", ColumnNames.business_acquisition_decision)
+        return df_result
+
+    def getTreasuryStockAcqusitionTrustContractTerminationDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020041
+        [주요사항보고서 주요정보::27.자기주식취득 신탁계약 해지 결정]
+        주요사항보고서(자기주식취득 신탁계약 해지 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get treasury stock acqusition contract termination decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "tsstkAqTrctrCcDecsn.json", ColumnNames.treasury_acq_contract_term_decision)
+        return df_result
+
+    def getTreasuryStockAcqusitionTrustContractConclusionDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020040
+        [주요사항보고서 주요정보::28.자기주식취득 신탁계약 체결 결정]
+        주요사항보고서(자기주식취득 신탁계약 체결 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get treasury stock acqusition contract conclusion decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "tsstkAqTrctrCnsDecsn.json", ColumnNames.treasury_acq_contract_conc_decision)
+        return df_result
+
+    def getTreasuryStockDisposalDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020039
+        [주요사항보고서 주요정보::29.자기주식 처분 결정]
+        주요사항보고서(자기주식 처분 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get treasury stock disposal decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "tsstkDpDecsn.json", ColumnNames.treasury_stock_disposal_decision)
+        return df_result
+
+    def getTreasuryStockAcquisitionDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020038
+        [주요사항보고서 주요정보::30.자기주식 취득 결정]
+        주요사항보고서(자기주식 취득 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get treasury stock acquisition decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "tsstkAqDecsn.json", ColumnNames.treasury_stock_acquisition_decision)
+        return df_result
+
+    def getStockExchangeTransferDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020053
+        [주요사항보고서 주요정보::31.주식교환·이전 결정]
+        주요사항보고서(주식교환·이전 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get stock exchange transfer decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "stkExtrDecsn.json", ColumnNames.stock_exchange_transfer)
+        return df_result
+
+    def getCompanyDivisionMergeDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020052
+        [주요사항보고서 주요정보::32.회사분할합병 결정]
+        주요사항보고서(회사분할합병 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get company division merge decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "cmpDvmgDecsn.json", ColumnNames.company_division_merge)
+        return df_result
+
+    def getCompanyDivisionDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020051
+        [주요사항보고서 주요정보::33.회사분할 결정]
+        주요사항보고서(회사분할 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get company division decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "cmpDvDecsn.json", ColumnNames.company_division)
+        return df_result
+
+    def getCompanyMergeDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020050
+        [주요사항보고서 주요정보::34.회사합병 결정]
+        주요사항보고서(회사합병 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get company merge decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "cmpMgDecsn.json", ColumnNames.company_merge)
+        return df_result
+
+    def getDebenturesAcquisitionDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020048
+        [주요사항보고서 주요정보::35.주권 관련 사채권 양수 결정]
+        주요사항보고서(주권 관련 사채권 양수 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get debentures acquisition decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "stkrtbdInhDecsn.json", ColumnNames.debentures_acquisition)
+        return df_result
+
+    def getDebenturesTransferDecisionInfo(
+            self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
+    ) -> pd.DataFrame:
+        """
+        https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS005&apiId=2020049
+        [주요사항보고서 주요정보::36.주권 관련 사채권 양도 결정]
+        주요사항보고서(주권 관련 사채권 양도 결정) 내에 주요 정보를 제공합니다.
+
+        :param corpCode: 공시대상회사의 고유번호(8자리)
+        :param dateBegin: 시작일
+        :param dateEnd: 종료일
+        :return: pandas DataFrame
+        """
+        info = f"(corp code: {corpCode})"
+        self._log("get debentures transfer decision info " + info, LogType.Command)
+        df_result = self._makeHighlightsDataFrameCommon(
+            corpCode, dateBegin, dateEnd, "stkrtbdTrfDecsn.json", ColumnNames.debentures_transfer)
+        return df_result
 
     """ 증권신고서 주요정보 API """
 
