@@ -15,6 +15,7 @@ class OpenDartConfiguration:
         if not os.path.isdir(self.path_config):
             os.mkdir(self.path_config)
         self.path_local_file = os.path.join(self.path_config, 'opendartconfig.xml')
+
         self.api_key = ''
         self.doc_str_replace_list = [
             ('&cr;', '&#13;'),
@@ -22,6 +23,14 @@ class OpenDartConfiguration:
             ('R&D', 'R&amp;D'),
             ('S&P', 'S&amp;P')
         ]
+        self.mysql_params = {
+            'host': '',
+            'port': 3306,
+            'user': '',
+            'password': '',
+            'databse': ''
+        }
+
         self.loadFromLocalFile()
 
     @staticmethod
@@ -43,6 +52,20 @@ class OpenDartConfiguration:
         if self.api_key is None:
             self.api_key = ''
 
+        node = self.findChildNode(root, 'mysql')
+        if node is not None:
+            for key in self.mysql_params.keys():
+                child = self.findChildNode(node, key)
+                if child is not None:
+                    text = child.text if child.text is not None else ''
+                    if key == 'port':
+                        try:
+                            self.mysql_params[key] = int(text)
+                        except ValueError:
+                            self.mysql_params[key] = 3306
+                    else:
+                        self.mysql_params[key] = text
+
     def saveToLocalFile(self):
         if os.path.isfile(self.path_local_file):
             tree = etree.parse(self.path_local_file)
@@ -52,5 +75,10 @@ class OpenDartConfiguration:
 
         node = self.findChildNode(root, 'api_key', True)
         node.text = self.api_key
+
+        node = self.findChildNode(root, 'mysql', True)
+        for key, value in self.mysql_params.items():
+            child_node = self.findChildNode(node, key, True)
+            child_node.text = str(value)
 
         writeElementToFile(root, self.path_local_file)

@@ -10,10 +10,12 @@ Requirements
 --
 ```
 lxml
-pandas
-requests
 PyQt5
+pandas
+pymysql
+requests
 requests-HTML
+PyQtWebEngine
 ```
 
 Manual

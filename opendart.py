@@ -6,6 +6,7 @@ import sys
 import time
 import shutil
 import pickle
+import pymysql
 import zipfile
 import datetime
 import requests
@@ -16,9 +17,9 @@ import pandas as pd
 import logging.handlers
 from enum import Enum, auto
 from lxml import etree, html
-from typing import List, Union, Tuple
 from requests_html import HTMLSession
 from abc import ABCMeta, abstractmethod
+from typing import List, Union, Tuple, Iterable
 from config import OpenDartConfiguration
 from define import *
 from Util import Callback
@@ -34,9 +35,15 @@ def convertTagToDict(tag: etree.Element) -> dict:
     return conv
 
 
-class ResponseException(Exception):
+class ApiResponseException(Exception):
     def __init__(self, status_code: int, message: str):
         self.status_code = status_code
+        self.message = message
+
+
+class MySqlException(Exception):
+    def __init__(self, code: int, message: str):
+        self.code = code
         self.message = message
 
 
@@ -62,6 +69,7 @@ class OpenDartCore:
     _write_log_console_to_file: bool = False
     _empty_dataframe_with_columns: bool = False
     _rename_dataframe_column_names: bool = True
+    _mysql_connection: Union[pymysql.connections.Connection, None] = None
 
     def __init__(self, api_key: str = None):
         curpath = os.path.dirname(os.path.abspath(__file__))
@@ -76,14 +84,22 @@ class OpenDartCore:
             os.mkdir(self._path_log_dir)
         self._initLoggerConsole()
 
-        self._config = OpenDartConfiguration()
-
-        self._callback_response_exception = Callback(int, str)
+        self._callback_api_response_exception = Callback(int, str)
         self._callback_raw_html_download_done = Callback()
+        self._callback_mysql_exception = Callback(int, str)
+
+        self._config = OpenDartConfiguration()
+        self._connectMySqlDatabase()
 
         if api_key is not None:
             self.setApiKey(api_key)
         self.loadCorporationDataFrame()
+
+    def __del__(self):
+        self.release()
+
+    def release(self):
+        self._disconnectMySqlDatabase()
 
     def _initLoggerConsole(self):
         self._logger_console = logging.getLogger('opendart_console')
@@ -133,8 +149,8 @@ class OpenDartCore:
         resp = self._requestWithParameters(url, params)
         return resp.json()
 
-    def registerCallbackResponseException(self, func):
-        self._callback_response_exception.connect(func)
+    def registerCallbackApiResponseException(self, func):
+        self._callback_api_response_exception.connect(func)
 
     def registerCallbackDocumentRawHtmlDownloadDone(self, func):
         self._callback_raw_html_download_done.connect(func)
@@ -191,8 +207,8 @@ class OpenDartCore:
         status_code = int(node_status.text)
         message = node_message.text
         if status_code != 0:
-            self._callback_response_exception.emit(status_code, message)
-            raise ResponseException(status_code, message)
+            self._callback_api_response_exception.emit(status_code, message)
+            raise ApiResponseException(status_code, message)
 
     def clearDocumentFilesFromDataPath(self):
         doc_extensions = ['.xml', '.html']
@@ -209,8 +225,8 @@ class OpenDartCore:
         message = json_obj.get('message')
         if status != '000':
             status_code = int(status)
-            self._callback_response_exception.emit(status_code, message)
-            raise ResponseException(status_code, message)
+            self._callback_api_response_exception.emit(status_code, message)
+            raise ApiResponseException(status_code, message)
 
     def _createEmptyDataFrame(self, column_names: Union[List[str], dict]) -> pd.DataFrame:
         df_result = pd.DataFrame()
@@ -265,6 +281,11 @@ class OpenDartCore:
             self._df_corplist.rename(columns=ColumnNames.corp_code, inplace=True)
         # change 'modify_date' type (str -> datetime)
         self._df_corplist['최종변경일자'] = pd.to_datetime(self._df_corplist['최종변경일자'], format='%Y%m%d')
+        # drop test record (금감원테스트)
+        colnames = self._df_corplist.columns
+        row_unnecessary = self._df_corplist[self._df_corplist[colnames[0]] == '99999999']
+        index = row_unnecessary.index
+        self._df_corplist.drop(index, inplace=True)
 
     def _serializeCorporationDataFrame(self):
         with open(self._path_corp_df_pkl_file, 'wb') as fp:
@@ -303,7 +324,7 @@ class OpenDartCore:
             with open(path_file, 'w', encoding='utf-8') as fp:
                 fp.writelines(doc_lines)
 
-    def _requestAndRender(self, url: str) -> requests.models.Response:
+    def _requestAndRender(self, url: str, timeout: float = 8.0) -> requests.models.Response:
         session = HTMLSession()
 
         response = session.get(url)
@@ -314,7 +335,7 @@ class OpenDartCore:
         self._log(message, LogType.API)
 
         tm_start = time.perf_counter()
-        response.html.render()
+        response.html.render(timeout=timeout)
         elapsed = time.perf_counter() - tm_start
         self._log(f"render done (elapsed: {elapsed} sec)", LogType.Info)
 
@@ -325,7 +346,7 @@ class OpenDartCore:
     def _getDocumentUrlFromViewerResponse(response: requests.models.Response):
         element = response.html.lxml
         tag_iframe = element.get_element_by_id("ifrm")
-        attrib_src = tag_iframe.attrib.get('src')
+        attrib_src = tag_iframe.attrib.get("src")
         url = "https://dart.fss.or.kr{}".format(attrib_src)
         return url
 
@@ -418,7 +439,7 @@ class OpenDartCore:
         json = self._requestAndGetJson(url_opendart.format(api), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             return self._createEmptyDataFrame(col_names)
         df_result = self._makeDataFrameFromJsonList(json, col_names)
@@ -433,7 +454,7 @@ class OpenDartCore:
         json = self._requestAndGetJson(url_opendart.format(api), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             return self._createEmptyDataFrame(col_names)
         df_result = self._makeDataFrameFromJsonList(json, col_names)
@@ -453,11 +474,125 @@ class OpenDartCore:
         json = self._requestAndGetJson(url_opendart.format(api), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             return self._createEmptyDataFrame(col_names)
         df_result = self._makeDataFrameFromJsonList(json, col_names)
         return df_result
+
+    def _connectMySqlDatabase(self):
+        try:
+            host = self._config.mysql_params.get('host')
+            port = self._config.mysql_params.get('port')
+            user = self._config.mysql_params.get('user')
+            passwd = self._config.mysql_params.get('password')
+            db = self._config.mysql_params.get('databse')
+            if len(host) > 0:
+                self._mysql_connection = pymysql.connect(host=host, port=port, user=user, passwd=passwd, db=db)
+                self._log('connected to mysql database', LogType.Info)
+            else:
+                self._log('check mysql database parameters', LogType.Info)
+        except pymysql.err.OperationalError as e:
+            self._callback_mysql_exception.emit(e.args[0], e.args[1])
+            self._log(f"mysql exception({e.args[0]}) - {e.args[1]}", LogType.Error)
+            self._mysql_connection = None
+
+    def _disconnectMySqlDatabase(self):
+        if self._mysql_connection is not None:
+            self._mysql_connection.close()
+
+    def _queryMySql(self, sql: str) -> Tuple:
+        cursor = self._mysql_connection.cursor()
+        result = cursor.execute(sql)
+        self._log(f"mysql query ({result}) ({sql})", LogType.Info)
+        fetch = cursor.fetchall()
+        return fetch
+
+    def _queryManyMySql(self, sql: str, data: Iterable):
+        cursor = self._mysql_connection.cursor()
+        result = cursor.executemany(sql, data)
+        self._log(f"mysql query many ({result}) ({sql})", LogType.Info)
+        fetch = cursor.fetchall()
+        return fetch
+
+    def _isTableExistInDatabase(self, table_name: str) -> bool:
+        result = self._queryMySql("SHOW TABLES;")
+        tables = [x[0] for x in result]
+        return table_name.lower() in tables
+
+    def _createCorporationTableInMySqlDatabase(self):
+        if self._mysql_connection is None:
+            return
+        table_name = 'CORPORATION'
+        self._log('try to create corporation table in mysql database', LogType.Command)
+        if self._isTableExistInDatabase(table_name):
+            self._log(f"mysql - table '{table_name}' is already in database", LogType.Info)
+        else:
+            sql = f"CREATE TABLE `{table_name}` ("
+            sql += "`고유번호` CHAR(8), "
+            sql += "`기업명` VARCHAR(32) NOT NULL, "
+            sql += "`종목코드` CHAR(6), "
+            sql += "`최종변경일자` DATE NOT NULL, "
+            sql += "PRIMARY KEY(`고유번호`)"
+            sql += ");"
+            self._queryMySql(sql)
+            self._mysql_connection.commit()
+
+    def _selectRecordsFromCorporationTableInMySql(self) -> pd.DataFrame:
+        self._log('try to select all records from corporation table in mysql database', LogType.Command)
+        records = self._queryMySql("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='CORPORATION';")
+        colnames = [x[0] for x in records]
+        records = self._queryMySql("SELECT * FROM CORPORATION;")
+        df = pd.DataFrame(records)
+        if df.empty:
+            df[colnames] = None
+        else:
+            df.columns = colnames
+        return df
+
+    def _updateRecordsOfCorporationTableInMySql(self):
+        if self._mysql_connection is None:
+            return
+
+        self._log('try to update corporation table in mysql database', LogType.Command)
+        table_name = 'CORPORATION'
+        if not self._isTableExistInDatabase(table_name):
+            self._createCorporationTableInMySqlDatabase()
+        df_db = self._selectRecordsFromCorporationTableInMySql()
+        data_insert = []
+        data_update = []
+        colnames = self._df_corplist.columns
+
+        for i in range(len(self._df_corplist)):
+            record = self._df_corplist.iloc[i]
+            corp_code = record[colnames[0]]
+            name = record[colnames[1]]
+            stock_code = record[colnames[2]].strip()
+            date = record[colnames[3]].strftime('%Y-%m-%d')
+            if corp_code in df_db['고유번호'].values:
+                record_db = df_db[df_db['고유번호'] == corp_code]
+                name_db = record_db['기업명'].values[0]
+                stock_db = record_db['종목코드'].values[0]
+                date_db = record_db['최종변경일자'].values[0].strftime('%Y-%m-%d')
+                if name_db != name or stock_db != stock_code or date_db != date:
+                    if len(stock_code) == 0:
+                        stock_code = None
+                    data_update.append((name, stock_code, date, corp_code))
+            else:
+                if len(stock_code) == 0:
+                    stock_code = None
+                data_insert.append((corp_code, name, stock_code, date))
+        self._log(f'insert/update dataset (insert: {len(data_insert)}, update: {len(data_update)})', LogType.Info)
+
+        if len(data_insert) > 0:
+            sql = f"INSERT INTO `{table_name}` (`고유번호`, `기업명`, `종목코드`, `최종변경일자`) "
+            sql += f"VALUES (%s, %s, %s, %s);"
+            self._queryManyMySql(sql, data_insert)
+        if len(data_update) > 0:
+            sql = f"UPDATE `{table_name}` SET `기업명`=%s, `종목코드`=%s, `최종변경일자`=%s WHERE `고유번호`=%s;"
+            self._queryManyMySql(sql, data_update)
+
+        self._mysql_connection.commit()
 
     @abstractmethod
     def loadCorporationDataFrame(self, reload: bool = False) -> pd.DataFrame:
@@ -477,7 +612,8 @@ class OpenDart(OpenDartCore):
     def searchDocument(
             self, corpCode: str = None, dateEnd: Union[str, datetime.date] = datetime.datetime.now().date(),
             dateBegin: Union[str, datetime.date] = None, onlyLastReport: bool = True, pageNumber: int = 1,
-            pageCount: int = 100, pbType: str = None, pbTypeDetail: str = None, recursive: bool = False
+            pageCount: int = 100, pbType: str = None, pbTypeDetail: str = None, corp_cls: str = None,
+            recursive: bool = False
     ) -> pd.DataFrame:
         """
         https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001
@@ -492,6 +628,7 @@ class OpenDart(OpenDartCore):
         :param pageCount: 페이지당 건수, 기본값 = 100 (범위 = 1 ~ 100)
         :param pbType: 공시유형 (define -> dict_pblntf_ty 참고)
         :param pbTypeDetail: 공시유형 (define -> dict_pblntf_detail_ty 참고)
+        :param corp_cls: 법인구분 (Y(유가), K(코스닥), N(코넥스), E(기타))
         :param recursive: 메서드 내부에서의 재귀적 호출인지 여부 (여러 페이지의 레코드를 모두 병합)
         :return: pandas DataFrame
         """
@@ -522,12 +659,13 @@ class OpenDart(OpenDartCore):
             params['pblntf_ty'] = pbType
         if pbTypeDetail is not None:
             params['pblntf_detail_ty'] = pbTypeDetail
-        # params['corp_cls']  # TODO:
+        if corp_cls is not None:
+            params['corp_cls'] = corp_cls
 
         json = self._requestAndGetJson(url_opendart.format("list.json"), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             return self._createEmptyDataFrame(ColumnNames.search_document)
 
@@ -535,14 +673,16 @@ class OpenDart(OpenDartCore):
         total_page = json.get('total_page')
         data_list = json.get('list')
         df_result = pd.DataFrame(data_list)
-        if not recursive:  # loop query more than 1 page - recursive call
-            for page in range(page_no + 1, total_page + 1):
-                df_new = self.searchDocument(corpCode, dateEnd, dateBegin, onlyLastReport,
-                                             page, pageCount, pbType, pbTypeDetail, recursive=True)
-                df_result = df_result.append(df_new)
-
         if self._rename_dataframe_column_names:
             df_result.rename(columns=ColumnNames.search_document, inplace=True)
+
+        if not recursive:  # loop query more than 1 page - recursive call
+            for page in range(page_no + 1, total_page + 1):
+                df_next = self.searchDocument(corpCode, dateEnd, dateBegin, onlyLastReport,
+                                              page, pageCount, pbType, pbTypeDetail, corp_cls,
+                                              recursive=True)
+                df_result = pd.concat([df_result, df_next], axis=0, ignore_index=True)
+
         return df_result
 
     def getCompanyInformation(
@@ -562,7 +702,7 @@ class OpenDart(OpenDartCore):
         json = self._requestAndGetJson(url_opendart.format("company.json"), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             return self._createEmptyDataFrame(ColumnNames.company)
 
@@ -593,7 +733,7 @@ class OpenDart(OpenDartCore):
             self._log(f"download document raw file (doc no: {document_no})", LogType.Command)
             try:
                 self._requestAndExtractZipFile(url_opendart.format("document.xml"), **params)
-            except ResponseException as e:
+            except ApiResponseException as e:
                 self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             self._solveDocumentRawFileEncodingIssue(document_no)
 
@@ -614,7 +754,7 @@ class OpenDart(OpenDartCore):
             if not self._tryLoadingCorporationDataFrameFromPickleFile():
                 try:
                     self._requestAndExtractZipFile(url_opendart.format("corpCode.xml"))
-                except ResponseException as e:
+                except ApiResponseException as e:
                     self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
                     self._df_corplist = self._createEmptyDataFrame(ColumnNames.corp_code)
                 else:
@@ -639,7 +779,7 @@ class OpenDart(OpenDartCore):
             df_filtered = self._df_corplist[self._df_corplist['정식명칭'].str.contains(name)]
         return df_filtered
 
-    def readDocumentRawFileAsString(
+    def readDocumentRawXmlFileAsString(
             self, document_no: str, reload: bool = False
     ) -> str:
         self.downloadDocumentRawFile(document_no, reload)
@@ -656,15 +796,24 @@ class OpenDart(OpenDartCore):
         if reload:
             self._removeDocumentHtmlFileInLocal(document_no)
         if not self._isDocumentHtmlFileExistInLocal(document_no):
-            self._log(f"download document as html file (doc no: {document_no})", LogType.Command)
-            url = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}".format(document_no)
-            response_viewer = self._requestAndRender(url)
-            url_doc_page = self._getDocumentUrlFromViewerResponse(response_viewer)
-            url_doc_page_modified = self._modifyQueryValueOfDocumentUrl(url_doc_page)
-            response_document = self._requestAndRender(url_doc_page_modified)
-            encoding = response_document.html.encoding
-            html_element = self._modifyTagAttributesOfDocumentResponse(response_document)
-            self._saveElementToLocalHtmlFile(html_element, document_no, encoding)
+            regex = re.compile(r"^[0-9]{14}$")
+            if regex.search(document_no) is not None:
+                self._log(f"download document as html file (doc no: {document_no})", LogType.Command)
+                url = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}".format(document_no)
+                try:
+                    response_viewer = self._requestAndRender(url)
+                    url_doc_page = self._getDocumentUrlFromViewerResponse(response_viewer)
+                    url_doc_page_modified = self._modifyQueryValueOfDocumentUrl(url_doc_page)
+                    response_document = self._requestAndRender(url_doc_page_modified)
+                    encoding = response_document.html.encoding
+                    html_element = self._modifyTagAttributesOfDocumentResponse(response_document)
+                    self._saveElementToLocalHtmlFile(html_element, document_no, encoding)
+                except Exception as e:
+                    self._log(str(e), LogType.Error)
+                    return ''
+            else:
+                self._log(f'document number ({document_no}) is not well-formed', LogType.Error)
+                return ''
 
         self._callback_raw_html_download_done.emit()
 
@@ -681,12 +830,15 @@ class OpenDart(OpenDartCore):
     def loadDocumentHtmlFileAsElementTree(
             self, document_no: str, reload: bool = False
     ) -> etree.ElementTree:
-        self.downloadDocumentAsHtmlFile(document_no, reload)
-        path_file = os.path.join(self._path_data_dir, f'{document_no}.html')
-        tree = html.parse(path_file)
+        path_file = self.downloadDocumentAsHtmlFile(document_no, reload)
+        if os.path.isfile(path_file):
+            tree = html.parse(path_file)
+        else:
+            root = etree.Element('html')
+            tree = etree.ElementTree(root)
         return tree
 
-    def loadDocumentHtmlFileAsText(
+    def readDocumentHtmlFileAsText(
             self, document_no: str, reload: bool = False
     ) -> str:
         tree = self.loadDocumentHtmlFileAsElementTree(document_no, reload)
@@ -694,16 +846,6 @@ class OpenDart(OpenDartCore):
         raw = html.tostring(tree, encoding=encoding)
         text = raw.decode(encoding=encoding)
         return text
-
-    def getCompanyInformationByName(
-            self, name: str, match_exact: bool = False
-    ) -> pd.DataFrame:
-        search_result = self.searchCorporationCodeWithName(name, match_exact)
-        df_result = self._createEmptyDataFrame([])
-        for elem in search_result:
-            df_elem = self.getCompanyInformation(elem[1])
-            df_result = df_result.append(df_elem)
-        return df_result
 
     """ 사업보고서 주요정보 API """
 
@@ -1338,7 +1480,7 @@ class OpenDart(OpenDartCore):
             params = {'rcept_no': receiptNo, 'reprt_code': rptcode}
             try:
                 self._requestAndExtractZipFile(url_opendart.format("fnlttXbrl.xml"), dest_dir, **params)
-            except ResponseException as e:
+            except ApiResponseException as e:
                 self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
 
         path_dest = os.path.join(self._path_data_dir, dest_dir)
@@ -1386,7 +1528,7 @@ class OpenDart(OpenDartCore):
         json = self._requestAndGetJson(url_opendart.format("xbrlTaxonomy.json"), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             return self._createEmptyDataFrame(ColumnNames.xbrl_taxonomy)
         df_result = self._makeDataFrameFromJsonList(json, ColumnNames.xbrl_taxonomy)
@@ -1411,7 +1553,7 @@ class OpenDart(OpenDartCore):
         json = self._requestAndGetJson(url_opendart.format("majorstock.json"), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             return self._createEmptyDataFrame(ColumnNames.major_stock)
 
@@ -1435,7 +1577,7 @@ class OpenDart(OpenDartCore):
         json = self._requestAndGetJson(url_opendart.format("elestock.json"), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             return self._createEmptyDataFrame(ColumnNames.executive_stock)
 
@@ -2149,7 +2291,7 @@ class OpenDart(OpenDartCore):
         json = self._requestAndGetJson(url_opendart.format("extrRs.json"), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             df_normal = self._createEmptyDataFrame(ColumnNames.declaration_normal)
             df_stock = self._createEmptyDataFrame(ColumnNames.declaration_stock)
@@ -2179,7 +2321,7 @@ class OpenDart(OpenDartCore):
         json = self._requestAndGetJson(url_opendart.format("mgRs.json"), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             df_normal = self._createEmptyDataFrame(ColumnNames.declaration_normal)
             df_stock = self._createEmptyDataFrame(ColumnNames.declaration_stock)
@@ -2209,7 +2351,7 @@ class OpenDart(OpenDartCore):
         json = self._requestAndGetJson(url_opendart.format("stkdpRs.json"), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             df_normal = self._createEmptyDataFrame(ColumnNames.declaration_normal)
             df_type = self._createEmptyDataFrame(ColumnNames.declaration_type)
@@ -2243,7 +2385,7 @@ class OpenDart(OpenDartCore):
         json = self._requestAndGetJson(url_opendart.format("bdRs.json"), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             df_normal = self._createEmptyDataFrame(ColumnNames.declaration_normal)
             df_takeover = self._createEmptyDataFrame(ColumnNames.declaration_takeover)
@@ -2276,7 +2418,7 @@ class OpenDart(OpenDartCore):
         json = self._requestAndGetJson(url_opendart.format("estkRs.json"), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             df_normal = self._createEmptyDataFrame(ColumnNames.declaration_normal)
             df_type = self._createEmptyDataFrame(ColumnNames.declaration_type)
@@ -2312,7 +2454,7 @@ class OpenDart(OpenDartCore):
         json = self._requestAndGetJson(url_opendart.format("dvRs.json"), **params)
         try:
             self._checkResponseStatus(json)
-        except ResponseException as e:
+        except ApiResponseException as e:
             self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
             df_normal = self._createEmptyDataFrame(ColumnNames.declaration_normal)
             df_stock = self._createEmptyDataFrame(ColumnNames.declaration_stock)

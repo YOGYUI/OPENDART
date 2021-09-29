@@ -1,5 +1,7 @@
-requests
-pandas
 lxml
 PyQt5
+pandas
+pymysql
+requests
 requests-HTML
+PyQtWebEngine
