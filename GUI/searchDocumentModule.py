@@ -2,21 +2,32 @@ import os
 import re
 import sys
 import pandas as pd
+from typing import Union
 from datetime import datetime, timedelta
-from PyQt5.QtCore import Qt, QDate
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem
-from PyQt5.QtWidgets import QLineEdit, QPushButton, QCheckBox, QDateEdit, QLabel
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QGroupBox, QSizePolicy, QHeaderView
+from dateutil.relativedelta import relativedelta
+from PyQt5.QtCore import Qt, QDate, pyqtSignal
+from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QMessageBox
+from PyQt5.QtWidgets import QLineEdit, QPushButton, QCheckBox, QDateEdit, QLabel, QComboBox
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QGroupBox, QSizePolicy, QHeaderView, QAbstractItemView
 CURPATH = os.path.dirname(os.path.abspath(__file__))
 PROJPATH = os.path.dirname(CURPATH)
 sys.path.extend([CURPATH, PROJPATH])
 sys.path = list(set(sys.path))
 del CURPATH, PROJPATH
-from opendart import OpenDart
+from opendart import OpenDart, Abbreviations
+
+
+class ReadOnlyTableItem(QTableWidgetItem):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setFlags(Qt.ItemFlags(int(self.flags()) ^ Qt.ItemIsEditable))
 
 
 class SearchDocumentWidget(QWidget):
     _opendart: OpenDart
+    _df_search_result: pd.DataFrame = pd.DataFrame()
+
+    sig_open_document = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -24,6 +35,15 @@ class SearchDocumentWidget(QWidget):
         self._tableSearchResult = QTableWidget()
         self._dateEditBegin = QDateEdit()
         self._dateEditEnd = QDateEdit()
+        self._btnDate1week = QPushButton('1W')
+        self._btnDate1month = QPushButton('1M')
+        self._btnDate6month = QPushButton('6M')
+        self._btnDate1year = QPushButton('1Y')
+        self._btnDate3year = QPushButton('3Y')
+        self._btnDate5year = QPushButton('5Y')
+        self._btnDate10year = QPushButton('10Y')
+        self._chkFinalReport = QCheckBox('Final Report')
+        self._cmbCorpType = QComboBox()
         self.initControl()
         self.initLayout()
 
@@ -43,11 +63,11 @@ class SearchDocumentWidget(QWidget):
         hbox.addWidget(self._editCompany)
         vbox.addWidget(subwgt)
 
-        grbox = QGroupBox('Condition')
+        grbox = QGroupBox('Search Condition')
         vbox.addWidget(grbox)
         subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         vbox_gr = QVBoxLayout(grbox)
-        vbox_gr.setContentsMargins(4, 4, 4, 4)
+        vbox_gr.setContentsMargins(4, 6, 4, 4)
         vbox_gr.setSpacing(4)
 
         subwgt = QWidget()
@@ -58,11 +78,50 @@ class SearchDocumentWidget(QWidget):
         lbl = QLabel('Duration')
         lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(lbl)
+        self._dateEditBegin.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._dateEditBegin)
         lbl = QLabel('~')
         lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(lbl)
+        self._dateEditEnd.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._dateEditEnd)
+        btn_width = 36
+        self._btnDate1week.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        self._btnDate1week.setFixedWidth(btn_width)
+        hbox.addWidget(self._btnDate1week)
+        self._btnDate1month.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        self._btnDate1month.setFixedWidth(btn_width)
+        hbox.addWidget(self._btnDate1month)
+        self._btnDate6month.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        self._btnDate6month.setFixedWidth(btn_width)
+        hbox.addWidget(self._btnDate6month)
+        self._btnDate1year.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        self._btnDate1year.setFixedWidth(btn_width)
+        hbox.addWidget(self._btnDate1year)
+        self._btnDate3year.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        self._btnDate3year.setFixedWidth(btn_width)
+        hbox.addWidget(self._btnDate3year)
+        self._btnDate5year.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        self._btnDate5year.setFixedWidth(btn_width)
+        hbox.addWidget(self._btnDate5year)
+        self._btnDate10year.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        self._btnDate10year.setFixedWidth(btn_width)
+        hbox.addWidget(self._btnDate10year)
+        hbox.addWidget(QWidget())
+        vbox_gr.addWidget(subwgt)
+
+        subwgt = QWidget()
+        subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        hbox = QHBoxLayout(subwgt)
+        hbox.setContentsMargins(0, 0, 0, 0)
+        hbox.setSpacing(4)
+        lbl = QLabel('Corporation Classification')
+        lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(lbl)
+        self._cmbCorpType.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(self._cmbCorpType)
+        self._chkFinalReport.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(self._chkFinalReport)
         hbox.addWidget(QWidget())
         vbox_gr.addWidget(subwgt)
 
@@ -71,20 +130,39 @@ class SearchDocumentWidget(QWidget):
     def initControl(self):
         self._editCompany.setPlaceholderText('Company Name / Company Unique Code (8 digit)')
         self._editCompany.returnPressed.connect(self.search)
-        date_end = datetime.now()
-        self._dateEditEnd.setDate(QDate(date_end.year, date_end.month, date_end.day))
-        date_begin = (date_end - timedelta(days=365))
-        self._dateEditBegin.setDate(QDate(date_begin.year, date_begin.month, date_begin.day))
+        self._dateEditEnd.setDisplayFormat("yyyy.MM.dd ")
+        self._dateEditEnd.setCalendarPopup(True)
+        self._dateEditBegin.setDisplayFormat("yyyy.MM.dd ")
+        self._dateEditBegin.setCalendarPopup(True)
+        self.onClickBtnDateRange(timedelta(days=365))
+        self._btnDate1week.clicked.connect(lambda: self.onClickBtnDateRange(timedelta(days=7)))
+        self._btnDate1month.clicked.connect(lambda: self.onClickBtnDateRange(relativedelta(months=1)))
+        self._btnDate6month.clicked.connect(lambda: self.onClickBtnDateRange(relativedelta(months=6)))
+        self._btnDate1year.clicked.connect(lambda: self.onClickBtnDateRange(relativedelta(years=1)))
+        self._btnDate3year.clicked.connect(lambda: self.onClickBtnDateRange(relativedelta(years=3)))
+        self._btnDate5year.clicked.connect(lambda: self.onClickBtnDateRange(relativedelta(years=5)))
+        self._btnDate10year.clicked.connect(lambda: self.onClickBtnDateRange(relativedelta(years=10)))
+        self._chkFinalReport.setChecked(True)
+        self._cmbCorpType.addItem('전체')
+        self._cmbCorpType.addItems(Abbreviations.corp_cls.values())
 
-        table_columns = ['공시대상회사', '보고서명', '접수번호', '제출인', '접수일자', '비고']
+        table_columns = ['공시대상회사', '보고서명', '제출인', '접수일자', '비고']
         self._tableSearchResult.setColumnCount(len(table_columns))
         self._tableSearchResult.setHorizontalHeaderLabels(table_columns)
-        for i in [2, 4, 5]:
+        for i in [3, 4]:
             self._tableSearchResult.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
         self._tableSearchResult.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self._tableSearchResult.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._tableSearchResult.itemDoubleClicked.connect(self.onTableSearchResultItemDoubleClicked)
 
     def search(self):
+        self._tableSearchResult.clearContents()
+
         text = self._editCompany.text()
+        if len(text) == 0:
+            QMessageBox.warning(self, "Warning", "Invalid Corporation Name or Code")
+            return
+
         regex = re.compile(r"^[0-9]{8}$")
         if regex.search(text) is not None:
             corp_code = [text]
@@ -95,42 +173,76 @@ class SearchDocumentWidget(QWidget):
         df_result = pd.DataFrame()
         dateEnd = self._dateEditEnd.date().toString('yyyyMMdd')
         dateBegin = self._dateEditBegin.date().toString('yyyyMMdd')
+        finalrpt = self._chkFinalReport.isChecked()
+        idx = self._cmbCorpType.currentIndex()
+        if idx == 0:
+            corpClass = None
+        else:
+            corpClass = list(Abbreviations.corp_cls.keys())[idx - 1]
 
         for code in corp_code:
             df_search = self._opendart.searchDocument(
-                corpCode=code, dateEnd=dateEnd, dateBegin=dateBegin
+                corpCode=code, dateEnd=dateEnd, dateBegin=dateBegin, finalReport=finalrpt,
+                corpClass=corpClass
             )
             if df_result.empty:
                 for col in df_search.columns:
                     df_result[col] = None
             df_result = df_result.append(df_search, ignore_index=True)
 
+        self._df_search_result = df_result
         self.drawTableSearchResult(df_result)
 
     def drawTableSearchResult(self, df_result: pd.DataFrame):
-        self._tableSearchResult.clearContents()
         rowcnt = len(df_result)
         df_result_values = df_result.values
         self._tableSearchResult.setRowCount(rowcnt)
+        # corp_cls_text = {"Y": "유", "K": "코", "N": "넥", "E": "기"}
         for r in range(rowcnt):
-            item = QTableWidgetItem(df_result_values[r][1])
-            self._tableSearchResult.setItem(r, 0, item)
-
-            item = QTableWidgetItem(df_result_values[r][4])
-            self._tableSearchResult.setItem(r, 1, item)
-
-            item = QTableWidgetItem(df_result_values[r][5])
-            self._tableSearchResult.setItem(r, 2, item)
-
-            item = QTableWidgetItem(df_result_values[r][6])
-            self._tableSearchResult.setItem(r, 3, item)
-
-            item = QTableWidgetItem(df_result_values[r][7])
-            self._tableSearchResult.setItem(r, 4, item)
-
-            item = QTableWidgetItem(df_result_values[r][8])
+            col = 0
+            # 공시대상회사
+            # corp_cls = corp_cls_text.get(df_result_values[r][0])
+            # btn = QPushButton(corp_cls)
+            corp_name = df_result_values[r][1]
+            item = ReadOnlyTableItem(corp_name)
+            self._tableSearchResult.setItem(r, col, item)
+            col += 1
+            # 보고서명
+            item = ReadOnlyTableItem(df_result_values[r][4])
+            self._tableSearchResult.setItem(r, col, item)
+            col += 1
+            # 접수번호
+            # item = ReadOnlyTableItem(df_result_values[r][5])
+            # self._tableSearchResult.setItem(r, col, item)
+            # col += 1
+            # 제출인
+            item = ReadOnlyTableItem(df_result_values[r][6])
+            self._tableSearchResult.setItem(r, col, item)
+            col += 1
+            # 접수일자
+            strdate = df_result_values[r][7]
+            strdate = strdate[:4] + '.' + strdate[4:6] + '.' + strdate[6:]
+            item = ReadOnlyTableItem(strdate)
+            self._tableSearchResult.setItem(r, col, item)
+            col += 1
+            # 비고
+            item = ReadOnlyTableItem(df_result_values[r][8])
             item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            self._tableSearchResult.setItem(r, 5, item)
+            self._tableSearchResult.setItem(r, col, item)
+            col += 1
+
+    def onClickBtnDateRange(self, td: Union[timedelta, relativedelta]):
+        date_end = datetime.now()
+        self._dateEditEnd.setDate(QDate(date_end.year, date_end.month, date_end.day))
+        date_begin = (date_end - td)
+        self._dateEditBegin.setDate(QDate(date_begin.year, date_begin.month, date_begin.day))
+
+    def onTableSearchResultItemDoubleClicked(self, item: QTableWidgetItem):
+        row = item.row()
+        record = self._df_search_result.iloc[row]
+        col_index = self._df_search_result.columns[5]
+        documnet_no = record[col_index]
+        self.sig_open_document.emit(documnet_no)
 
 
 if __name__ == '__main__':

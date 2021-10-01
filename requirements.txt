@@ -5,3 +5,4 @@ pymysql
 requests
 requests-HTML
 PyQtWebEngine
+python-dateutil

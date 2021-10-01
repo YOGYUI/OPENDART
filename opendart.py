@@ -12,12 +12,12 @@ import datetime
 import requests
 import lxml.html
 import subprocess
-import urllib.parse
 import pandas as pd
 import logging.handlers
 from enum import Enum, auto
 from lxml import etree, html
-from requests_html import HTMLSession
+from functools import partial
+from requests_html import HTMLSession, AsyncHTMLSession
 from abc import ABCMeta, abstractmethod
 from typing import List, Union, Tuple, Iterable
 from config import OpenDartConfiguration
@@ -67,7 +67,7 @@ class OpenDartCore:
     _df_corplist: pd.DataFrame = None
     _logger_console: logging.Logger
     _write_log_console_to_file: bool = False
-    _empty_dataframe_with_columns: bool = False
+    _empty_dataframe_with_columns: bool = True
     _rename_dataframe_column_names: bool = True
     _mysql_connection: Union[pymysql.connections.Connection, None] = None
 
@@ -87,6 +87,7 @@ class OpenDartCore:
         self._callback_api_response_exception = Callback(int, str)
         self._callback_raw_html_download_done = Callback()
         self._callback_mysql_exception = Callback(int, str)
+        self._callback_request_exception = Callback()
 
         self._config = OpenDartConfiguration()
         self._connectMySqlDatabase()
@@ -178,6 +179,9 @@ class OpenDartCore:
         self._log(f"set api key: {self._config.api_key}", LogType.Command)
         self._config.saveToLocalFile()
         self.loadCorporationDataFrame()
+
+    def getApiKey(self) -> str:
+        return self._config.api_key
 
     def _makeRequestParameter(self, **kwargs) -> dict:
         params: dict = {'crtfc_key': self._config.api_key}
@@ -324,45 +328,63 @@ class OpenDartCore:
             with open(path_file, 'w', encoding='utf-8') as fp:
                 fp.writelines(doc_lines)
 
-    def _requestAndRender(self, url: str, timeout: float = 8.0) -> requests.models.Response:
-        session = HTMLSession()
-
-        response = session.get(url)
-        message = f"<status:{response.status_code}> "
+    def _logRequestResponse(self, req_type: str, response: requests.models.Response):
+        message = f"{req_type} <status:{response.status_code}> "
         message += f"<elapsed:{response.elapsed.microseconds / 1000}ms> "
         message += f"<encoding:{response.html.encoding}> "
         message += f"<url:{response.url}> "
+        # message += f"<headers:{response.headers}> "
         self._log(message, LogType.API)
 
-        tm_start = time.perf_counter()
-        response.html.render(timeout=timeout)
-        elapsed = time.perf_counter() - tm_start
-        self._log(f"render done (elapsed: {elapsed} sec)", LogType.Info)
-
+    def _request(self, url: str, params: dict = None) -> requests.models.Response:
+        session = HTMLSession()
+        try:
+            response = session.get(url, params=params)
+            self._logRequestResponse('get', response)
+        except requests.exceptions.ConnectionError as e:
+            self._log(f'request exception - {e}', LogType.Error)
+            self._callback_request_exception.emit()
+            response = None
         session.close()
         return response
 
-    @staticmethod
-    def _getDocumentUrlFromViewerResponse(response: requests.models.Response):
-        element = response.html.lxml
-        tag_iframe = element.get_element_by_id("ifrm")
-        attrib_src = tag_iframe.attrib.get("src")
-        url = "https://dart.fss.or.kr{}".format(attrib_src)
-        return url
+    def _requestAndRenderScript(
+            self, url: str, params: dict = None, script: str = None
+    ) -> tuple:
+        session = HTMLSession()
+        response = session.get(url, params=params)
+        self._logRequestResponse('get', response)
+        tm_start = time.perf_counter()
+        result = response.html.render(script=script)
+        elapsed = time.perf_counter() - tm_start
+        self._log(f"render done (elapsed: {elapsed} sec)", LogType.Info)
+        session.close()
+        return response, result
+
+    async def _asyncPost(
+            self, session: AsyncHTMLSession, url: str, data: dict = None
+    ) -> requests.models.Response:
+        try:
+            response = await session.post(url, data=data)
+            self._logRequestResponse('post', response)
+        except requests.exceptions.ConnectionError as e:
+            self._log(f'request exception - {e}', LogType.Error)
+            self._callback_request_exception.emit()
+            response = None
+        return response
 
     @staticmethod
-    def _modifyQueryValueOfDocumentUrl(url: str) -> str:
-        url_parsed = urllib.parse.urlparse(url)
-        queries = url_parsed.query.split('&')
-        queries_split = [x.split('=') for x in queries]
-        queries_dict = {}
-        for q in queries_split:
-            queries_dict[q[0]] = q[1]
-        queries_dict['offset'] = '0'
-        queries_dict['length'] = '0'
-        queries = '&'.join([f'{x[0]}={x[1]}' for x in queries_dict.items()])
-        url_parsed = url_parsed._replace(query=queries)
-        return url_parsed.geturl()
+    async def closeAsyncSession(session: AsyncHTMLSession):
+        await session.close()
+
+    def _requestsPostMultiAsync(
+            self, url: str, data: List[dict]
+    ) -> List[requests.models.Response]:
+        # TODO: use event loop
+        asession = AsyncHTMLSession()
+        result = asession.run(*[partial(self._asyncPost, asession, url, x) for x in data])
+        asession.run(lambda: self.closeAsyncSession(asession))
+        return result
 
     @staticmethod
     def _modifyTagAttributesOfDocumentResponse(response: requests.models.Response) -> lxml.html.HtmlElement:
@@ -605,14 +627,119 @@ class OpenDartCore:
             self._df_corplist[name] = None
         return self._df_corplist
 
+    @staticmethod
+    def _makeDataframeFromDailyDocumentElementTree(tree: etree.ElementTree) -> pd.DataFrame:
+        tbList = tree.find_class('tbList')[0]
+        tbody = tbList.find('tbody')
+        tr_list = tbody.findall('tr')
+        element_list = []
+        corp_code_regex = re.compile(r"[0-9]{8}")
+
+        for tr in tr_list:
+            td_list = tr.findall('td')
+            strtime = td_list[0].text.strip()
+
+            name_span = td_list[1].find('span')
+            name_a = name_span.find('a')
+            name = name_a.text
+            name = name.replace('\t', '')
+            name = name.replace('\n', '')
+            name = name.strip()
+
+            name_attrib_href = name_a.attrib.get('href')
+            corp_code_search = corp_code_regex.search(name_attrib_href)
+            corp_code = ''
+            if corp_code_search is not None:
+                span = corp_code_search.span()
+                corp_code = name_attrib_href[span[0]:span[1]]
+
+            rpt_a = td_list[2].find('a')
+            rpt_attrib_id = rpt_a.attrib.get('id')
+            rpt = rpt_a.text
+            if rpt is None:
+                rpt_span = rpt_a.find('span')
+                rpt = rpt_span.text + rpt_span.tail
+            rpt = rpt.replace('\t', '')
+            rpt = rpt.replace('\n', '')
+            rpt = rpt.replace('  ', ' ')
+            rpt = rpt.strip()
+
+            rpt_no = rpt_attrib_id.split('_')[-1]
+
+            flr_nm = td_list[3].text
+            rcept_dt = td_list[4].text
+
+            element = {
+                '시간': strtime,
+                '고유번호': corp_code,
+                '공시대상회사': name,
+                '보고서명': rpt,
+                '보고서번호': rpt_no,
+                '제출인': flr_nm,
+                '접수일자': rcept_dt
+            }
+            element_list.append(element)
+        df = pd.DataFrame(element_list)
+        return df
+
 
 class OpenDart(OpenDartCore):
+    """ 유틸리티"""
+
+    def getDailyUploadedDocuments(self, date: Union[datetime.date, str], corpClass: str = None) -> pd.DataFrame:
+        """
+        특정 날짜에 공시된 모든 문서 리스트를 데이터프레임으로 반환
+
+        :param date: 검색대상일자 (str일 경우 format = YYYY.mm.dd)
+        :param corpClass: 법인구분 (Y(유가), K(코스닥), N(코넥스), E(기타)), None일 경우 모두 검색
+        :return: pandas DataFrame (columns: 시간, 고유번호, 공시대상회사, 보고서명, 보고서번호, 제출인, 접수일자)
+        """
+        if corpClass in ['Y', 'K', 'N']:
+            url = f'http://dart.fss.or.kr/dsac001/main{corpClass}.do'
+        elif corpClass == 'E':
+            url = f'http://dart.fss.or.kr/dsac001/mainG.do'
+        else:
+            url = 'http://dart.fss.or.kr/dsac001/mainAll.do'
+        if isinstance(date, datetime.date):
+            search_date = date.strftime('%Y.%m.%d')
+        else:
+            search_date = date
+        params = {'selectDate': search_date}
+        response = self._request(url, params)
+        if response is None:
+            return pd.DataFrame()
+
+        tree = response.html.lxml
+        pageSkip = tree.find_class('pageSkip')[0]
+        pageSkip_ul = pageSkip.find('ul')
+        li_list = pageSkip_ul.findall('li')
+        page_count = len(li_list)
+        df_result = self._makeDataframeFromDailyDocumentElementTree(tree)
+
+        if page_count > 1:
+            url = 'http://dart.fss.or.kr/dsac001/search.ax'
+            data_list = [{
+                'currentPage': x + 1,
+                'selectDate': date,
+                'mdayCnt': 0
+            } for x in range(1, page_count)]
+            responses = self._requestsPostMultiAsync(url, data_list)
+            df_list = [self._makeDataframeFromDailyDocumentElementTree(x.html.lxml) for x in responses]
+            df_result = [df_result]
+            df_result.extend(df_list)
+            df_result = pd.concat(df_result, axis=0, ignore_index=True)
+
+        df_result.sort_values(by='시간', inplace=True)
+        df_result.reset_index(drop=True, inplace=True)
+
+        return df_result
+
     """ 공시정보 API """
 
     def searchDocument(
             self, corpCode: str = None, dateEnd: Union[str, datetime.date] = datetime.datetime.now().date(),
-            dateBegin: Union[str, datetime.date] = None, onlyLastReport: bool = True, pageNumber: int = 1,
-            pageCount: int = 100, pbType: str = None, pbTypeDetail: str = None, corp_cls: str = None,
+            dateBegin: Union[str, datetime.date] = None, finalReport: bool = True, pageNumber: int = 1,
+            pageCount: int = 100, pbType: str = None, pbTypeDetail: str = None, corpClass: str = None,
             recursive: bool = False
     ) -> pd.DataFrame:
         """
@@ -623,12 +750,12 @@ class OpenDart(OpenDartCore):
         :param corpCode: 공시대상회사의 고유번호(8자리)
         :param dateEnd: 검색종료 접수일자(YYYYMMDD), 기본값 = 호출당일
         :param dateBegin: 검색시작 접수일자(YYYYMMDD)
-        :param onlyLastReport: 최종보고서만 검색여부, 기본값 = False(정정이 있는 경우 최종정정만 검색)
+        :param finalReport: 최종보고서만 검색여부, 기본값 = True(정정이 있는 경우 최종정정만 검색)
         :param pageNumber: 페이지 번호, 기본값 = 1
         :param pageCount: 페이지당 건수, 기본값 = 100 (범위 = 1 ~ 100)
         :param pbType: 공시유형 (define -> dict_pblntf_ty 참고)
         :param pbTypeDetail: 공시유형 (define -> dict_pblntf_detail_ty 참고)
-        :param corp_cls: 법인구분 (Y(유가), K(코스닥), N(코넥스), E(기타))
+        :param corpClass: 법인구분 (Y(유가), K(코스닥), N(코넥스), E(기타))
         :param recursive: 메서드 내부에서의 재귀적 호출인지 여부 (여러 페이지의 레코드를 모두 병합)
         :return: pandas DataFrame
         """
@@ -652,15 +779,15 @@ class OpenDart(OpenDartCore):
             else:
                 dateEnd = datetime.datetime.strptime(dateEnd, '%Y%m%d')
                 params['bgn_de'] = (dateEnd - datetime.timedelta(days=30)).strftime('%Y%m%d')
-        params['last_reprt_at'] = 'Y' if onlyLastReport else 'N'
+        params['last_reprt_at'] = 'Y' if finalReport else 'N'
         params['page_no'] = max(1, pageNumber)
         params['page_count'] = max(1, min(100, pageCount))
         if pbType is not None:
             params['pblntf_ty'] = pbType
         if pbTypeDetail is not None:
             params['pblntf_detail_ty'] = pbTypeDetail
-        if corp_cls is not None:
-            params['corp_cls'] = corp_cls
+        if corpClass is not None:
+            params['corp_cls'] = corpClass
 
         json = self._requestAndGetJson(url_opendart.format("list.json"), **params)
         try:
@@ -678,8 +805,8 @@ class OpenDart(OpenDartCore):
 
         if not recursive:  # loop query more than 1 page - recursive call
             for page in range(page_no + 1, total_page + 1):
-                df_next = self.searchDocument(corpCode, dateEnd, dateBegin, onlyLastReport,
-                                              page, pageCount, pbType, pbTypeDetail, corp_cls,
+                df_next = self.searchDocument(corpCode, dateEnd, dateBegin, finalReport,
+                                              page, pageCount, pbType, pbTypeDetail, corpClass,
                                               recursive=True)
                 df_result = pd.concat([df_result, df_next], axis=0, ignore_index=True)
 
@@ -799,14 +926,19 @@ class OpenDart(OpenDartCore):
             regex = re.compile(r"^[0-9]{14}$")
             if regex.search(document_no) is not None:
                 self._log(f"download document as html file (doc no: {document_no})", LogType.Command)
-                url = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}".format(document_no)
+                url_main = "https://dart.fss.or.kr/dsaf001/main.do"
+                url_viewer = "https://dart.fss.or.kr/report/viewer.do"
+                params = {"rcpNo": document_no}
+                script = "currentDocValues;"  # returns 'rcpNo', 'dcmNo', 'eleId', 'offset', 'length', 'dtd'
                 try:
-                    response_viewer = self._requestAndRender(url)
-                    url_doc_page = self._getDocumentUrlFromViewerResponse(response_viewer)
-                    url_doc_page_modified = self._modifyQueryValueOfDocumentUrl(url_doc_page)
-                    response_document = self._requestAndRender(url_doc_page_modified)
-                    encoding = response_document.html.encoding
-                    html_element = self._modifyTagAttributesOfDocumentResponse(response_document)
+                    _, obj = self._requestAndRenderScript(url_main, params, script)
+                    self._log(f"get rendered object - {obj}", LogType.Info)
+                    obj['eleId'] = 0
+                    obj['offset'] = 0
+                    obj['length'] = 0
+                    response = self._request(url_viewer, obj)
+                    encoding = response.html.encoding
+                    html_element = self._modifyTagAttributesOfDocumentResponse(response)
                     self._saveElementToLocalHtmlFile(html_element, document_no, encoding)
                 except Exception as e:
                     self._log(str(e), LogType.Error)
