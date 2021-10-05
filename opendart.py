@@ -17,7 +17,8 @@ import logging.handlers
 from enum import Enum, auto
 from lxml import etree, html
 from functools import partial
-from requests_html import HTMLSession, AsyncHTMLSession
+from collections import OrderedDict
+from requests_html import AsyncHTMLSession
 from abc import ABCMeta, abstractmethod
 from typing import List, Union, Tuple, Iterable
 from config import OpenDartConfiguration
@@ -29,7 +30,7 @@ url_opendart = 'https://opendart.fss.or.kr/api/{}'
 
 
 def convertTagToDict(tag: etree.Element) -> dict:
-    conv = {}
+    conv = dict()
     for child in list(tag):
         conv[child.tag] = child.text
     return conv
@@ -70,6 +71,7 @@ class OpenDartCore:
     _empty_dataframe_with_columns: bool = True
     _rename_dataframe_column_names: bool = True
     _mysql_connection: Union[pymysql.connections.Connection, None] = None
+    _asession_html: AsyncHTMLSession
 
     def __init__(self, api_key: str = None):
         curpath = os.path.dirname(os.path.abspath(__file__))
@@ -91,6 +93,7 @@ class OpenDartCore:
 
         self._config = OpenDartConfiguration()
         self._connectMySqlDatabase()
+        self._initAsyncHtmlSession()
 
         if api_key is not None:
             self.setApiKey(api_key)
@@ -100,6 +103,7 @@ class OpenDartCore:
         self.release()
 
     def release(self):
+        self._closeAsyncHtmlSession()
         self._disconnectMySqlDatabase()
 
     def _initLoggerConsole(self):
@@ -112,7 +116,7 @@ class OpenDartCore:
         self._logger_console.addHandler(handler)
         self._logger_console.setLevel(logging.DEBUG)
 
-    def _log(self, message: str, logType: LogType):
+    def _log(self, message: str, logType: LogType = LogType.Info):
         now = datetime.datetime.now()
         strTimeStamp = now.strftime('[%Y-%m-%d %H:%M:%S.%f]')
         strLogType = '[ unknown]'
@@ -131,6 +135,9 @@ class OpenDartCore:
         print(strTimeStamp + strLogType + ' ' + strColorStart + message + strColorEnd)
         if self._write_log_console_to_file:
             self._logger_console.info(strLogType + ' ' + message)
+
+    def log(self, *args, **kwargs):
+        self._log(*args, **kwargs)
 
     def _requestWithParameters(self, url: str, params: dict) -> requests.Response:
         response = requests.get(url, params=params)
@@ -336,36 +343,52 @@ class OpenDartCore:
         # message += f"<headers:{response.headers}> "
         self._log(message, LogType.API)
 
-    def _request(self, url: str, params: dict = None) -> requests.models.Response:
-        session = HTMLSession()
+    def _initAsyncHtmlSession(self):
+        self._asession_html = AsyncHTMLSession()
+
+    async def _asyncCloseSession(self):
+        await self._asession_html.close()
+
+    def _closeAsyncHtmlSession(self):
+        self._asession_html.run(self._asyncCloseSession)
+
+    async def _asyncGet(self, url: str, params: dict = None) -> requests.models.Response:
         try:
-            response = session.get(url, params=params)
+            response = await self._asession_html.get(url, params=params)
             self._logRequestResponse('get', response)
         except requests.exceptions.ConnectionError as e:
             self._log(f'request exception - {e}', LogType.Error)
             self._callback_request_exception.emit()
             response = None
-        session.close()
         return response
 
-    def _requestAndRenderScript(
-            self, url: str, params: dict = None, script: str = None
-    ) -> tuple:
-        session = HTMLSession()
-        response = session.get(url, params=params)
-        self._logRequestResponse('get', response)
-        tm_start = time.perf_counter()
-        result = response.html.render(script=script)
-        elapsed = time.perf_counter() - tm_start
-        self._log(f"render done (elapsed: {elapsed} sec)", LogType.Info)
-        session.close()
+    def _requestGet(self, url: str, params: dict = None) -> requests.models.Response:
+        result = self._asession_html.run(lambda: self._asyncGet(url, params))
+        response = result[0]
+        return response
+
+    async def _asyncGetRender(self, url: str,  params: dict = None, script: str = None) -> tuple:
+        try:
+            response = await self._asession_html.get(url, params=params)
+            self._logRequestResponse('get', response)
+            tm_start = time.perf_counter()
+            result = await response.html.arender(script=script, reload=True, wait=0)
+            elapsed = time.perf_counter() - tm_start
+            self._log(f"render done (elapsed: {elapsed} sec)", LogType.Info)
+        except requests.exceptions.ConnectionError as e:
+            self._log(f'request exception - {e}', LogType.Error)
+            self._callback_request_exception.emit()
+            response, result = None, None
         return response, result
 
-    async def _asyncPost(
-            self, session: AsyncHTMLSession, url: str, data: dict = None
-    ) -> requests.models.Response:
+    def _requestGetRenderScript(self, url: str, params: dict = None, script: str = None) -> tuple:
+        result = self._asession_html.run(lambda: self._asyncGetRender(url, params, script))
+        response, obj = result[0]
+        return response, obj
+
+    async def _asyncPost(self, url: str, data: dict = None) -> requests.models.Response:
         try:
-            response = await session.post(url, data=data)
+            response = await self._asession_html.post(url, data=data)
             self._logRequestResponse('post', response)
         except requests.exceptions.ConnectionError as e:
             self._log(f'request exception - {e}', LogType.Error)
@@ -373,17 +396,9 @@ class OpenDartCore:
             response = None
         return response
 
-    @staticmethod
-    async def closeAsyncSession(session: AsyncHTMLSession):
-        await session.close()
-
-    def _requestsPostMultiAsync(
-            self, url: str, data: List[dict]
-    ) -> List[requests.models.Response]:
+    def _requestPost(self, url: str, data: List[dict]) -> List[requests.models.Response]:
         # TODO: use event loop
-        asession = AsyncHTMLSession()
-        result = asession.run(*[partial(self._asyncPost, asession, url, x) for x in data])
-        asession.run(lambda: self.closeAsyncSession(asession))
+        result = self._asession_html.run(*[partial(self._asyncPost, url, x) for x in data])
         return result
 
     @staticmethod
@@ -639,7 +654,7 @@ class OpenDartCore:
             td_list = tr.findall('td')
             strtime = td_list[0].text.strip()
 
-            name_span = td_list[1].find('span')
+            name_span = td_list[1].find('span')  # <span class="innerWrap">
             name_a = name_span.find('a')
             name = name_a.text
             name = name.replace('\t', '')
@@ -652,6 +667,9 @@ class OpenDartCore:
             if corp_code_search is not None:
                 span = corp_code_search.span()
                 corp_code = name_attrib_href[span[0]:span[1]]
+
+            class_span = name_span.find('span')
+            corp_class = class_span.attrib.get('title')
 
             rpt_a = td_list[2].find('a')
             rpt_attrib_id = rpt_a.attrib.get('id')
@@ -668,16 +686,19 @@ class OpenDartCore:
 
             flr_nm = td_list[3].text
             rcept_dt = td_list[4].text
+            tag_rm = td_list[5]
+            rm = ' '.join([x.text for x in tag_rm.findall('span')])
 
-            element = {
-                '시간': strtime,
-                '고유번호': corp_code,
-                '공시대상회사': name,
-                '보고서명': rpt,
-                '보고서번호': rpt_no,
-                '제출인': flr_nm,
-                '접수일자': rcept_dt
-            }
+            element = OrderedDict()
+            element['시간'] = strtime
+            element['고유번호'] = corp_code
+            element['분류'] = corp_class
+            element['공시대상회사'] = name
+            element['보고서명'] = rpt
+            element['보고서번호'] = rpt_no
+            element['제출인'] = flr_nm
+            element['접수일자'] = rcept_dt
+            element['비고'] = rm
             element_list.append(element)
         df = pd.DataFrame(element_list)
         return df
@@ -705,7 +726,7 @@ class OpenDart(OpenDartCore):
         else:
             search_date = date
         params = {'selectDate': search_date}
-        response = self._request(url, params)
+        response = self._requestGet(url, params)
         if response is None:
             return pd.DataFrame()
 
@@ -723,7 +744,7 @@ class OpenDart(OpenDartCore):
                 'selectDate': date,
                 'mdayCnt': 0
             } for x in range(1, page_count)]
-            responses = self._requestsPostMultiAsync(url, data_list)
+            responses = self._requestPost(url, data_list)
             df_list = [self._makeDataframeFromDailyDocumentElementTree(x.html.lxml) for x in responses]
             df_result = [df_result]
             df_result.extend(df_list)
@@ -876,6 +897,7 @@ class OpenDart(OpenDartCore):
         :return: pandas DataFrame
         """
         if self._df_corplist is None:
+            tm_start = time.perf_counter()
             self._log("load corporation list as dataframe", LogType.Command)
             self._setReadyForCorporationDataFramePickleFile(reload)
             if not self._tryLoadingCorporationDataFrameFromPickleFile():
@@ -887,6 +909,8 @@ class OpenDart(OpenDartCore):
                 else:
                     self._makeCorporationDataFrameFromFile()
                 self._serializeCorporationDataFrame()
+            elapsed = time.perf_counter() - tm_start
+            self._log(f'finished loading corporation list (elapsed: {elapsed} sec)', LogType.Info)
         return self._df_corplist
 
     def searchCorporationCodeWithName(
@@ -931,12 +955,11 @@ class OpenDart(OpenDartCore):
                 params = {"rcpNo": document_no}
                 script = "currentDocValues;"  # returns 'rcpNo', 'dcmNo', 'eleId', 'offset', 'length', 'dtd'
                 try:
-                    _, obj = self._requestAndRenderScript(url_main, params, script)
+                    _, obj = self._requestGetRenderScript(url_main, params, script)
                     self._log(f"get rendered object - {obj}", LogType.Info)
-                    obj['eleId'] = 0
                     obj['offset'] = 0
                     obj['length'] = 0
-                    response = self._request(url_viewer, obj)
+                    response = self._requestGet(url_viewer, obj)
                     encoding = response.html.encoding
                     html_element = self._modifyTagAttributesOfDocumentResponse(response)
                     self._saveElementToLocalHtmlFile(html_element, document_no, encoding)
