@@ -345,12 +345,14 @@ class OpenDartCore:
 
     def _initAsyncHtmlSession(self):
         self._asession_html = AsyncHTMLSession()
+        self._log('async html session initialized', LogType.Info)
 
     async def _asyncCloseSession(self):
         await self._asession_html.close()
 
     def _closeAsyncHtmlSession(self):
         self._asession_html.run(self._asyncCloseSession)
+        self._log('async html session closed', LogType.Info)
 
     async def _asyncGet(self, url: str, params: dict = None) -> requests.models.Response:
         try:
@@ -405,7 +407,8 @@ class OpenDartCore:
     def _modifyTagAttributesOfDocumentResponse(response: requests.models.Response) -> lxml.html.HtmlElement:
         element = response.html.lxml
         tag_link = element.find('.//link')
-        tag_link.attrib['href'] = "https://dart.fss.or.kr{}".format(tag_link.attrib['href'])
+        if tag_link is not None:
+            tag_link.attrib['href'] = "https://dart.fss.or.kr{}".format(tag_link.attrib['href'])
         tags_img = element.findall('.//img')
         for tag in tags_img:
             tag.attrib['src'] = "https://dart.fss.or.kr{}".format(tag.attrib['src'])

@@ -2,7 +2,7 @@ import os
 import sys
 from typing import Union, List
 from PyQt5.QtGui import QCloseEvent
-from PyQt5.QtWidgets import QMainWindow, QMdiSubWindow
+from PyQt5.QtWidgets import QMainWindow, QMdiSubWindow, QMenu, QMenuBar
 CURPATH = os.path.dirname(os.path.abspath(__file__))
 PROJPATH = os.path.dirname(CURPATH)
 sys.path.extend([CURPATH, PROJPATH])
@@ -14,6 +14,7 @@ from companyInformationModule import CompanyInformationSubWindow
 from dailyDocumentModule import DailyDocumentSubWindow
 from searchDocumentModule import SearchDocumentSubWindow
 from documentViewerModule import DocumentViewerSubWindow
+from corporationListModule import CorporationListSubWindow
 
 
 class MainWindow(QMainWindow):
@@ -24,6 +25,7 @@ class MainWindow(QMainWindow):
     _subwnd_company_info: CompanyInformationSubWindow
     _subwnd_daily_docs: DailyDocumentSubWindow
     _subwnd_search_doc: SearchDocumentSubWindow
+    _subwnd_corp_list: CorporationListSubWindow
 
     def __init__(self, dart_obj: OpenDart = None, parent=None):
         super().__init__(parent=parent)
@@ -33,10 +35,12 @@ class MainWindow(QMainWindow):
         self._subwnd_company_info = CompanyInformationSubWindow(dart_obj, self)
         self._subwnd_daily_docs = DailyDocumentSubWindow(dart_obj, self)
         self._subwnd_search_doc = SearchDocumentSubWindow(dart_obj, self)
+        self._subwnd_corp_list = CorporationListSubWindow(dart_obj, self)
 
         self.initControl()
         self.initLayout()
         self.setOpenDartObject(dart_obj)
+        self.setWindowTitle('DART Application')
 
     def release(self):
         if self._opendart is not None:
@@ -56,6 +60,11 @@ class MainWindow(QMainWindow):
         self._subwnd_search_doc.sig_open_document.connect(self.openDocument)
         self._subwnd_search_doc.sig_corporation_code.connect(self.loadCompanyInformation)
         self._subwnd_list.append(self._subwnd_search_doc)
+        self._mdiArea.addSubWindow(self._subwnd_corp_list)
+        self._subwnd_corp_list.sig_corporation_code.connect(self.loadCompanyInformation)
+        self._subwnd_corp_list.sig_corporation_name.connect(self.setSearchCorporationName)
+        self._subwnd_list.append(self._subwnd_corp_list)
+        self._mdiArea.cascadeSubWindows()
 
     def setOpenDartObject(self, obj: OpenDart):
         self._opendart = obj
@@ -83,6 +92,9 @@ class MainWindow(QMainWindow):
 
     def loadCompanyInformation(self, corp_code: str):
         self._subwnd_company_info.setCorporationCodeAndRefresh(corp_code)
+
+    def setSearchCorporationName(self, corp_name: str):
+        self._subwnd_search_doc.setCorporationName(corp_name)
 
     def closeEvent(self, a0: QCloseEvent) -> None:
         self.release()

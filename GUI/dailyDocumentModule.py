@@ -6,7 +6,7 @@ from datetime import datetime
 from PyQt5.QtCore import Qt, pyqtSignal, QDate
 from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QDateEdit, QPushButton, QLabel, QRadioButton
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QSizePolicy, QMessageBox, QButtonGroup
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QSizePolicy, QMessageBox, QButtonGroup, QGroupBox
 from PyQt5.QtWidgets import QHeaderView, QAbstractItemView
 from PyQt5.QtWidgets import QMdiSubWindow
 CURPATH = os.path.dirname(os.path.abspath(__file__))
@@ -16,7 +16,6 @@ sys.path = list(set(sys.path))
 del CURPATH, PROJPATH
 from opendart import OpenDart, Abbreviations
 from uiCommon import ReadOnlyTableItem
-# TODO: 시간별, 회사명별, 보고서명별 정렬
 
 
 class DailyDocumentWidget(QWidget):
@@ -36,7 +35,12 @@ class DailyDocumentWidget(QWidget):
         self._radioClassN = QRadioButton('코넥스')
         self._radioClassE = QRadioButton('기타법인')
         self._radioClassA = QRadioButton('전체')
-        self._tableDailyList = QTableWidget()
+        self._radioSortTime = QRadioButton('Time')
+        self._radioSortCorpName = QRadioButton('Corporation Name')
+        self._radioSortDocName = QRadioButton('Document Title')
+        self._radioSortAscending = QRadioButton('Ascending')
+        self._radioSortDescending = QRadioButton('Descending')
+        self._table = QTableWidget()
         self.initControl()
         self.initLayout()
         self.setOpenDartObject(dart_obj)
@@ -52,7 +56,7 @@ class DailyDocumentWidget(QWidget):
         subwgt = QWidget()
         subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         hbox = QHBoxLayout(subwgt)
-        hbox.setContentsMargins(2, 0, 0, 0)
+        hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(4)
         lbl = QLabel('Search Date')
         lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
@@ -64,6 +68,10 @@ class DailyDocumentWidget(QWidget):
         hbox.addWidget(self._lblResult)
         vbox.addWidget(subwgt)
 
+        grbox = QGroupBox('Classification')
+        grbox.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        vbox_gr = QVBoxLayout(grbox)
+        vbox_gr.setContentsMargins(4, 6, 4, 4)
         subwgt = QWidget()
         subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         hbox = QHBoxLayout(subwgt)
@@ -80,9 +88,40 @@ class DailyDocumentWidget(QWidget):
         self._radioClassA.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._radioClassA)
         hbox.addWidget(QWidget())
-        vbox.addWidget(subwgt)
+        vbox_gr.addWidget(subwgt)
+        vbox.addWidget(grbox)
 
-        vbox.addWidget(self._tableDailyList)
+        grbox = QGroupBox('Sorting')
+        grbox.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        vbox_gr = QVBoxLayout(grbox)
+        vbox_gr.setContentsMargins(4, 6, 4, 4)
+        subwgt = QWidget()
+        subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        hbox = QHBoxLayout(subwgt)
+        hbox.setContentsMargins(2, 0, 0, 0)
+        hbox.setSpacing(4)
+        self._radioSortTime.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        hbox.addWidget(self._radioSortTime)
+        self._radioSortCorpName.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        hbox.addWidget(self._radioSortCorpName)
+        self._radioSortDocName.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        hbox.addWidget(self._radioSortDocName)
+        hbox.addWidget(QWidget())
+        vbox_gr.addWidget(subwgt)
+        subwgt = QWidget()
+        subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        hbox = QHBoxLayout(subwgt)
+        hbox.setContentsMargins(2, 0, 0, 0)
+        hbox.setSpacing(4)
+        self._radioSortAscending.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        hbox.addWidget(self._radioSortAscending)
+        self._radioSortDescending.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        hbox.addWidget(self._radioSortDescending)
+        hbox.addWidget(QWidget())
+        vbox_gr.addWidget(subwgt)
+        vbox.addWidget(grbox)
+
+        vbox.addWidget(self._table)
 
     def initControl(self):
         self._dateEditSearch.setDisplayFormat("yyyy.MM.dd ")
@@ -100,17 +139,35 @@ class DailyDocumentWidget(QWidget):
         btngrp.addButton(self._radioClassA)
         self._radioClassY.setChecked(True)
 
+        btngrp = QButtonGroup()
+        btngrp.addButton(self._radioSortTime)
+        btngrp.addButton(self._radioSortCorpName)
+        btngrp.addButton(self._radioSortDocName)
+        self._radioSortTime.setChecked(True)
+        self._radioSortTime.clicked.connect(self.drawTable)
+        self._radioSortCorpName.clicked.connect(self.drawTable)
+        self._radioSortDocName.clicked.connect(self.drawTable)
+
+        btngrp = QButtonGroup()
+        btngrp.addButton(self._radioSortAscending)
+        btngrp.addButton(self._radioSortDescending)
+        self._radioSortAscending.setChecked(True)
+        self._radioSortAscending.clicked.connect(self.drawTable)
+        self._radioSortDescending.clicked.connect(self.drawTable)
+
         table_columns = ['시간', '분류', '공시대상회사', '보고서명', '제출인', '접수일자', '비고']
-        self._tableDailyList.setColumnCount(len(table_columns))
-        self._tableDailyList.setHorizontalHeaderLabels(table_columns)
+        self._table.setColumnCount(len(table_columns))
+        self._table.setHorizontalHeaderLabels(table_columns)
         for i in [0, 1, 5, 6]:
-            self._tableDailyList.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
-        self._tableDailyList.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self._tableDailyList.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self._tableDailyList.itemDoubleClicked.connect(self.onTableDailyListItemDoubleClicked)
+            self._table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._table.itemDoubleClicked.connect(self.onTableDailyListItemDoubleClicked)
+        self._table.setAlternatingRowColors(True)
+        styleSheet = "QTableWidget {alternate-background-color: #eeeeee; background-color: white;}"
+        self._table.setStyleSheet(styleSheet)
 
     def refresh(self):
-        self._tableDailyList.clearContents()
         self._lblResult.setText('')
         if self._opendart is None:
             QMessageBox.warning(self, "Warning", "Open DART object is None!")
@@ -133,45 +190,59 @@ class DailyDocumentWidget(QWidget):
         self.drawTable()
 
     def drawTable(self):
+        self._table.setRowCount(0)
         rowcnt = len(self._df_daily_list)
+
+        try:
+            columns = self._df_daily_list.columns
+            ascending = self._radioSortAscending.isChecked()
+            if self._radioSortTime.isChecked():
+                self._df_daily_list.sort_values(by=columns[0], ascending=ascending, inplace=True)
+            elif self._radioSortCorpName.isChecked():
+                self._df_daily_list.sort_values(by=columns[3], ascending=ascending, inplace=True)
+            elif self._radioSortDocName.isChecked():
+                self._df_daily_list.sort_values(by=columns[4], ascending=ascending, inplace=True)
+        except Exception:
+            pass
+
         df_list_values = self._df_daily_list.values
-        self._tableDailyList.setRowCount(rowcnt)
+        self._table.setRowCount(rowcnt)
         for r in range(rowcnt):
             col = 0
             # 시간
             strtime = df_list_values[r][0]
             item = ReadOnlyTableItem(strtime)
-            self._tableDailyList.setItem(r, col, item)
+            self._table.setItem(r, col, item)
             col += 1
             # 분류
             corp_class = df_list_values[r][2]
             item = ReadOnlyTableItem(corp_class[0])
             item.setToolTip(corp_class)
             item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            self._tableDailyList.setItem(r, col, item)
+            self._table.setItem(r, col, item)
             col += 1
             # 공시대상회사
             corp_name = df_list_values[r][3]
             item = ReadOnlyTableItem(corp_name)
             item.setToolTip(corp_name)
-            self._tableDailyList.setItem(r, col, item)
+            self._table.setItem(r, col, item)
             col += 1
             # 보고서명
             rpt_title = df_list_values[r][4]
             item = ReadOnlyTableItem(rpt_title)
             item.setToolTip(rpt_title)
-            self._tableDailyList.setItem(r, col, item)
+            self._table.setItem(r, col, item)
             col += 1
             # 제출인
             rpt_name = df_list_values[r][6]
             item = ReadOnlyTableItem(rpt_name)
             item.setToolTip(rpt_name)
-            self._tableDailyList.setItem(r, col, item)
+            self._table.setItem(r, col, item)
             col += 1
             # 접수일자
             strdate = df_list_values[r][7]
             item = ReadOnlyTableItem(strdate)
-            self._tableDailyList.setItem(r, col, item)
+            self._table.setItem(r, col, item)
             col += 1
             # 비고
             etc = df_list_values[r][8]
@@ -186,7 +257,7 @@ class DailyDocumentWidget(QWidget):
                     pass
             if len(msg) > 0:
                 item.setToolTip(msg[:-1])
-            self._tableDailyList.setItem(r, col, item)
+            self._table.setItem(r, col, item)
             col += 1
 
     def onTableDailyListItemDoubleClicked(self, item: QTableWidgetItem):
