@@ -38,3 +38,4 @@ class HTML(BaseParser):
         # html = HTML(url=self.url, html=content.encode(DEFAULT_ENCODING), default_encoding=DEFAULT_ENCODING)
         html = HTML(url=self.url, html=content.encode(self.encoding), default_encoding=DEFAULT_ENCODING)
 ```
+Replacing can be done with [script](https://github.com/YOGYUI/OPENDART/tree/main/Util/requests_html_modify_source.py) in repository.

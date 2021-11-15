@@ -154,7 +154,7 @@ class CorporationListWidget(QWidget):
         self.drawTable()
 
     def drawTable(self):
-        if self._df_corp_list is None:
+        if self._df_corp_list is None or len(self._df_corp_list) == 0:
             return
 
         voffset = self._scrollVertical.value()
@@ -205,7 +205,7 @@ class CorporationListWidget(QWidget):
                     self._editSearch.setFocus()
 
     def onTableItemDoubleClicked(self, item: QTableWidgetItem):
-        if self._df_corp_list is None:
+        if self._df_corp_list is None or len(self._df_corp_list) == 0:
             return
         row = item.row() + self._scrollVertical.value()
         record = self._df_corp_list.loc[row]

@@ -1,8 +1,8 @@
 import os
 import sys
 from typing import Union, List
-from PyQt5.QtGui import QCloseEvent
-from PyQt5.QtWidgets import QMainWindow, QMdiSubWindow, QMenu, QMenuBar
+from PyQt5.QtGui import QShowEvent, QCloseEvent
+from PyQt5.QtWidgets import QMainWindow, QMdiSubWindow, QMessageBox, QMenu, QMenuBar, QDesktopWidget
 CURPATH = os.path.dirname(os.path.abspath(__file__))
 PROJPATH = os.path.dirname(CURPATH)
 sys.path.extend([CURPATH, PROJPATH])
@@ -15,6 +15,8 @@ from dailyDocumentModule import DailyDocumentSubWindow
 from searchDocumentModule import SearchDocumentSubWindow
 from documentViewerModule import DocumentViewerSubWindow
 from corporationListModule import CorporationListSubWindow
+from setApiKeyModule import SetApiKeyDialog
+from Util.functions import *
 
 
 class MainWindow(QMainWindow):
@@ -39,8 +41,11 @@ class MainWindow(QMainWindow):
 
         self.initControl()
         self.initLayout()
+        self._menuBar = QMenuBar(self)
+        self.initMenuBar()
         self.setOpenDartObject(dart_obj)
         self.setWindowTitle('DART Application')
+        self.resize(800, 800)
 
     def release(self):
         if self._opendart is not None:
@@ -66,11 +71,26 @@ class MainWindow(QMainWindow):
         self._subwnd_list.append(self._subwnd_corp_list)
         self._mdiArea.cascadeSubWindows()
 
+    def initMenuBar(self):
+        self.setMenuBar(self._menuBar)
+
+        menuFile = QMenu('File', self._menuBar)
+        self._menuBar.addAction(menuFile.menuAction())
+        menu_set_apikey = makeQAction(parent=self, text='Set API Key', triggered=self.openSetApiKeyDialog)
+        menuFile.addAction(menu_set_apikey)
+        menuFile.addSeparator()
+        menu_close = makeQAction(parent=self, text='Close', triggered=self.close)
+        menuFile.addAction(menu_close)
+
     def setOpenDartObject(self, obj: OpenDart):
         self._opendart = obj
+        self._opendart.registerCallbackApiResponseException(self.onOpenDartApiResponseException)
         for swnd in self._subwnd_list:
             if callable(getattr(swnd, 'setOpenDartObject', None)):
                 swnd.setOpenDartObject(obj)
+
+    def onOpenDartApiResponseException(self, status_code: int, message: str):
+        QMessageBox.warning(self, 'API Response Exception', f'{status_code}: {message}')
 
     def openDocument(self, document_no: str):
         find = list(filter(lambda x: x.windowTitle() == document_no, self._subwnd_list))
@@ -96,8 +116,28 @@ class MainWindow(QMainWindow):
     def setSearchCorporationName(self, corp_name: str):
         self._subwnd_search_doc.setCorporationName(corp_name)
 
+    def showEvent(self, a0: QShowEvent) -> None:
+        self.setCenterWindow()
+
     def closeEvent(self, a0: QCloseEvent) -> None:
         self.release()
+
+    def setCenterWindow(self):
+        qtRect = self.frameGeometry()
+        centerPt = QDesktopWidget().availableGeometry().center()
+        qtRect.moveCenter(centerPt)
+        self.move(qtRect.topLeft())
+
+    def openSetApiKeyDialog(self):
+        dlg = SetApiKeyDialog(self)
+        dlg.sig_set_key.connect(self.onApiKeyDialogSet)
+        dlg.exec_()
+
+    def onApiKeyDialogSet(self, key: str):
+        try:
+            self._opendart.setApiKey(key)
+        except Exception as e:
+            QMessageBox.warning(self, 'Exception', str(e))
 
 
 if __name__ == '__main__':
@@ -112,6 +152,5 @@ if __name__ == '__main__':
         app = QApplication(sys.argv)
     wnd_ = MainWindow(dart)
     wnd_.show()
-    wnd_.resize(800, 800)
 
     app.exec_()

@@ -4,6 +4,7 @@ import io
 import re
 import sys
 import time
+import queue
 import shutil
 import pickle
 import pymysql
@@ -906,12 +907,12 @@ class OpenDart(OpenDartCore):
             if not self._tryLoadingCorporationDataFrameFromPickleFile():
                 try:
                     self._requestAndExtractZipFile(url_opendart.format("corpCode.xml"))
+                    self._serializeCorporationDataFrame()
                 except ApiResponseException as e:
                     self._log(f"response exception({e.status_code}) - {e.message}", LogType.Error)
                     self._df_corplist = self._createEmptyDataFrame(ColumnNames.corp_code)
                 else:
                     self._makeCorporationDataFrameFromFile()
-                self._serializeCorporationDataFrame()
             elapsed = time.perf_counter() - tm_start
             self._log(f'finished loading corporation list (elapsed: {elapsed} sec)', LogType.Info)
         return self._df_corplist
