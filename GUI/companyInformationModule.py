@@ -60,6 +60,7 @@ class CompanyInformationWidget(QWidget):
         self._table.setColumnCount(1)
         self._table.horizontalHeader().hide()
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self._table.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
         stylesheet = "QTableWidget::item {padding: 10px;}"
         self._table.setStyleSheet(stylesheet)
         for r in range(self._table.rowCount()):
@@ -203,6 +204,7 @@ class CompanyInformationSubWindow(QMdiSubWindow):
         self._widget.sig_title.connect(self.setTitle)
         self.setWidget(self._widget)
         self.setTitle('Null')
+        self.setFixedHeight(400)
 
     def closeEvent(self, closeEvent: QCloseEvent) -> None:
         pass

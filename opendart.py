@@ -25,6 +25,7 @@ from typing import List, Union, Tuple, Iterable
 from config import OpenDartConfiguration
 from define import *
 from Util import Callback
+# TODO: change data path
 
 
 url_opendart = 'https://opendart.fss.or.kr/api/{}'
@@ -57,10 +58,10 @@ class LogType(Enum):
 
 
 class ReportCode(Enum):
-    Buisness = '11011'
+    Business = '11011'
     HalfYear = '11012'
-    FirstQuater = '11013'
-    ThirdQueater = '11014'
+    FirstQuarter = '11013'
+    ThirdQuarter = '11014'
 
 
 class OpenDartCore:
@@ -118,24 +119,27 @@ class OpenDartCore:
         self._logger_console.setLevel(logging.DEBUG)
 
     def _log(self, message: str, logType: LogType = LogType.Info):
-        now = datetime.datetime.now()
-        strTimeStamp = now.strftime('[%Y-%m-%d %H:%M:%S.%f]')
-        strLogType = '[ unknown]'
-        strColorStart = ''
-        strColorEnd = ''
-        if logType == LogType.Command:
-            strLogType = '[ command]'
-        elif logType == LogType.Info:
-            strLogType = '[    info]'
-        elif logType == LogType.API:
-            strLogType = '[     api]'
-        elif logType == LogType.Error:
-            strLogType = '[   error]'
-            strColorStart = '\033[91m'
-            strColorEnd = '\033[0m'
-        print(strTimeStamp + strLogType + ' ' + strColorStart + message + strColorEnd)
-        if self._write_log_console_to_file:
-            self._logger_console.info(strLogType + ' ' + message)
+        try:
+            now = datetime.datetime.now()
+            strTimeStamp = now.strftime('[%Y-%m-%d %H:%M:%S.%f]')
+            strLogType = '[ unknown]'
+            strColorStart = ''
+            strColorEnd = ''
+            if logType == LogType.Command:
+                strLogType = '[ command]'
+            elif logType == LogType.Info:
+                strLogType = '[    info]'
+            elif logType == LogType.API:
+                strLogType = '[     api]'
+            elif logType == LogType.Error:
+                strLogType = '[   error]'
+                strColorStart = '\033[91m'
+                strColorEnd = '\033[0m'
+            print(strTimeStamp + strLogType + ' ' + strColorStart + message + strColorEnd)
+            if self._write_log_console_to_file:
+                self._logger_console.info(strLogType + ' ' + message)
+        except ImportError:
+            pass
 
     def log(self, *args, **kwargs):
         self._log(*args, **kwargs)
@@ -647,6 +651,14 @@ class OpenDartCore:
         return self._df_corplist
 
     @staticmethod
+    def _createEmptyDailyDocumentDataframe() -> pd.DataFrame:
+        df = pd.DataFrame()
+        columns = ['시간', '고유번호', '분류', '공시대상회사', '보고서명', '보고서번호', '제출인', '접수일자', '비고']
+        for col in columns:
+            df[col] = None
+        return df
+
+    @staticmethod
     def _makeDataframeFromDailyDocumentElementTree(tree: etree.ElementTree) -> pd.DataFrame:
         tbList = tree.find_class('tbList')[0]
         tbody = tbList.find('tbody')
@@ -735,11 +747,15 @@ class OpenDart(OpenDartCore):
             return pd.DataFrame()
 
         tree = response.html.lxml
-        pageSkip = tree.find_class('pageSkip')[0]
-        pageSkip_ul = pageSkip.find('ul')
-        li_list = pageSkip_ul.findall('li')
-        page_count = len(li_list)
-        df_result = self._makeDataframeFromDailyDocumentElementTree(tree)
+        try:
+            pageSkip = tree.find_class('pageSkip')[0]
+            pageSkip_ul = pageSkip.find('ul')
+            li_list = pageSkip_ul.findall('li')
+            page_count = len(li_list)
+            df_result = self._makeDataframeFromDailyDocumentElementTree(tree)
+        except IndexError:
+            page_count = 0
+            df_result = self._createEmptyDailyDocumentDataframe()
 
         if page_count > 1:
             url = 'http://dart.fss.or.kr/dsac001/search.ax'
@@ -1651,7 +1667,8 @@ class OpenDart(OpenDartCore):
                 subprocess.call([opener, path_dest])
 
     def getEntireFinancialStatements(
-            self, corpCode: str, year: int, reportCode: Union[ReportCode, str], financialDivision: str):
+            self, corpCode: str, year: int, reportCode: Union[ReportCode, str], financialDivision: str
+    ) -> pd.DataFrame:
         """
         https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS003&apiId=2019020
         [상장기업 재무정보::4.단일회사 전체 재무제표]
@@ -1672,7 +1689,7 @@ class OpenDart(OpenDartCore):
             fs_div=financialDivision)
         return df_result
 
-    def getXbrlTaxonomyFormat(self, div: str):
+    def getXbrlTaxonomyFormat(self, div: str) -> pd.DataFrame:
         """
         https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS003&apiId=2020001
         [상장기업 재무정보::5.XBRL택사노미재무제표양식]

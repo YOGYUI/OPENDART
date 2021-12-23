@@ -306,7 +306,7 @@ class SearchDocumentSubWindow(QMdiSubWindow):
         self._widget.sig_corporation_code.connect(self.sig_corporation_code.emit)
         self._widget.sig_open_document.connect(self.sig_open_document.emit)
         self.setWidget(self._widget)
-        self.setWindowTitle('Document Search')
+        self.setWindowTitle('Search Document')
 
     def closeEvent(self, closeEvent: QCloseEvent) -> None:
         pass
