@@ -2,7 +2,7 @@ import os
 import sys
 from typing import Union, List
 from PyQt5.QtGui import QShowEvent, QCloseEvent
-from PyQt5.QtWidgets import QMainWindow, QMdiSubWindow, QMessageBox, QMenu, QMenuBar, QDesktopWidget, QAction
+from PyQt5.QtWidgets import QMainWindow, QMdiSubWindow, QMessageBox, QMenu, QMenuBar, QDesktopWidget
 CURPATH = os.path.dirname(os.path.abspath(__file__))
 PROJPATH = os.path.dirname(CURPATH)
 sys.path.extend([CURPATH, PROJPATH])
