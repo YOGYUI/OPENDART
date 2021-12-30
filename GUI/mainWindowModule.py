@@ -20,7 +20,6 @@ from ShareDisclosureModule import ShareDisclosureSubWindow
 from setApiKeyModule import SetApiKeyDialog
 from Util.functions import *
 from uiCommon import makeQAction
-# TODO: API Key Modify Module
 
 
 class MainWindow(QMainWindow):
@@ -40,10 +39,11 @@ class MainWindow(QMainWindow):
     _menu_visible_subwnd_daily_docs: QAction
     _menu_visible_subwnd_search_doc: QAction
     _menu_visible_subwnd_corp_list: QAction
-    _menu_visible_business_report: QAction
-    _menu_visible_share_disclosure: QAction
+    _menu_visible_subwnd_business_report: QAction
+    _menu_visible_subwnd_share_disclosure: QAction
+    _menu_visible_subwnd_document_viewer: QAction
 
-    def __init__(self, dart_obj: OpenDart = None, parent=None):
+    def __init__(self, dart_obj: OpenDart = None, parent=None, init_width: int = 800, init_height: int = 800):
         super().__init__(parent=parent)
 
         self._mdiArea = MyMDIArea(self)
@@ -54,23 +54,27 @@ class MainWindow(QMainWindow):
         self._subwnd_corp_list = CorporationListSubWindow(dart_obj, self)
         self._subwnd_business_report = BusinessReportSubWindow(dart_obj, self)
         self._subwnd_share_disclosure = ShareDisclosureSubWindow(dart_obj, self)
+        self._subwnd_document_viewer = DocumentViewerSubWindow(dart_obj, self)
 
         self.initControl()
         self.initLayout()
-        self._menuBar = QMenuBar(self)
         self.initMenuBar()
         self.setOpenDartObject(dart_obj)
-        self.setWindowTitle('DART Application')
-        self.resize(800, 800)
+        self.setWindowTitle('DART')
+        self.resize(init_width, init_height)
 
     def release(self):
         if self._opendart is not None:
             self._opendart.release()
+        for subwnd in self._subwnd_list:
+            if callable(getattr(subwnd, 'release', None)):
+                subwnd.release()
 
     def initLayout(self):
         self.setCentralWidget(self._mdiArea)
 
     def initControl(self):
+        self._mdiArea.setDisplayText('[DART Application]\nDeveloper: YOGYUI')
         self._mdiArea.addSubWindow(self._subwnd_company_info)
         self._subwnd_list.append(self._subwnd_company_info)
         self._mdiArea.addSubWindow(self._subwnd_daily_docs)
@@ -89,6 +93,8 @@ class MainWindow(QMainWindow):
         self._subwnd_list.append(self._subwnd_business_report)
         self._mdiArea.addSubWindow(self._subwnd_share_disclosure)
         self._subwnd_list.append(self._subwnd_share_disclosure)
+        self._mdiArea.addSubWindow(self._subwnd_document_viewer)
+        self._subwnd_list.append(self._subwnd_document_viewer)
 
         for wnd in self._subwnd_list:
             wnd.resize(600, 600)
@@ -100,6 +106,10 @@ class MainWindow(QMainWindow):
 
         menuFile = QMenu('&File', menubar)
         menubar.addAction(menuFile.menuAction())
+        menu_open_apikey_dlg = makeQAction(
+            parent=self, text="Set OpenDART API Key", triggered=self.openSetApiKeyDialog)
+        menuFile.addAction(menu_open_apikey_dlg)
+        menuFile.addSeparator()
         menu_close = makeQAction(parent=self, text="Close", triggered=self.close)
         menuFile.addAction(menu_close)
 
@@ -126,45 +136,40 @@ class MainWindow(QMainWindow):
             triggered=lambda: self.toggleSubWindowVisible(self._subwnd_corp_list))
         self._menu_visible_subwnd_corp_list.setIcon(self._subwnd_corp_list.windowIcon())
         menuView.addAction(self._menu_visible_subwnd_corp_list)
-        self._menu_visible_business_report = makeQAction(
+        self._menu_visible_subwnd_business_report = makeQAction(
             parent=self, text="Business Report Detail", checkable=True,
             triggered=lambda: self.toggleSubWindowVisible(self._subwnd_business_report))
-        self._menu_visible_business_report.setIcon(self._subwnd_business_report.windowIcon())
-        menuView.addAction(self._menu_visible_business_report)
-        self._menu_visible_share_disclosure = makeQAction(
+        self._menu_visible_subwnd_business_report.setIcon(self._subwnd_business_report.windowIcon())
+        menuView.addAction(self._menu_visible_subwnd_business_report)
+        self._menu_visible_subwnd_share_disclosure = makeQAction(
             parent=self, text="Share Disclosure Detail", checkable=True,
             triggered=lambda: self.toggleSubWindowVisible(self._subwnd_share_disclosure))
-        self._menu_visible_share_disclosure.setIcon(self._subwnd_share_disclosure.windowIcon())
-        menuView.addAction(self._menu_visible_share_disclosure)
+        self._menu_visible_subwnd_share_disclosure.setIcon(self._subwnd_share_disclosure.windowIcon())
+        menuView.addAction(self._menu_visible_subwnd_share_disclosure)
+        self._menu_visible_subwnd_document_viewer = makeQAction(
+            parent=self, text="Document Viewer", checkable=True,
+            triggered=lambda: self.toggleSubWindowVisible(self._subwnd_document_viewer))
+        self._menu_visible_subwnd_document_viewer.setIcon(self._subwnd_document_viewer.windowIcon())
+        menuView.addAction(self._menu_visible_subwnd_document_viewer)
         menuView.addSeparator()
+        menu_close_all_subwnd = makeQAction(
+            parent=self, text="Close All SubWindows", triggered=self._mdiArea.closeAllSubWindows)
+        menuView.addAction(menu_close_all_subwnd)
 
     def setOpenDartObject(self, obj: OpenDart):
         self._opendart = obj
         self._opendart.registerCallbackApiResponseException(self.onOpenDartApiResponseException)
-        for swnd in self._subwnd_list:
-            if callable(getattr(swnd, 'setOpenDartObject', None)):
-                swnd.setOpenDartObject(obj)
+        for subwnd in self._subwnd_list:
+            if callable(getattr(subwnd, 'setOpenDartObject', None)):
+                subwnd.setOpenDartObject(obj)
 
     def onOpenDartApiResponseException(self, status_code: int, message: str):
         QMessageBox.warning(self, 'API Response Exception', f'{status_code}: {message}')
 
     def openDocument(self, document_no: str):
-        find = list(filter(lambda x: x.windowTitle() == document_no, self._subwnd_list))
-        if len(find) > 0:
-            subwnd = find[0]
-        else:
-            subwnd = DocumentViewerSubWindow(self._opendart, self)
-            subwnd.sig_close.connect(self.onDocumentViewerSubWindowClosed)
-            subwnd.setDocumentNumber(document_no)
-            self._mdiArea.addSubWindow(subwnd)
-            self._subwnd_list.append(subwnd)
-        subwnd.showNormal()
-        subwnd.show()
-        subwnd.setFocus()
-
-    def onDocumentViewerSubWindowClosed(self, subwnd: QMdiSubWindow):
-        self._mdiArea.removeSubWindow(subwnd)
-        self._subwnd_list.remove(subwnd)
+        self._subwnd_document_viewer.showNormal()
+        self._subwnd_document_viewer.show()
+        self._subwnd_document_viewer.setDocumentNumber(document_no)
 
     def loadCompanyInformation(self, corp_code: str):
         self._subwnd_company_info.setCorporationCodeAndRefresh(corp_code)
@@ -193,8 +198,9 @@ class MainWindow(QMainWindow):
         self._menu_visible_subwnd_daily_docs.setChecked(self._subwnd_daily_docs.isVisible())
         self._menu_visible_subwnd_search_doc.setChecked(self._subwnd_search_doc.isVisible())
         self._menu_visible_subwnd_corp_list.setChecked(self._subwnd_corp_list.isVisible())
-        self._menu_visible_business_report.setChecked(self._subwnd_business_report.isVisible())
-        self._menu_visible_share_disclosure.setChecked(self._subwnd_share_disclosure.isVisible())
+        self._menu_visible_subwnd_business_report.setChecked(self._subwnd_business_report.isVisible())
+        self._menu_visible_subwnd_share_disclosure.setChecked(self._subwnd_share_disclosure.isVisible())
+        self._menu_visible_subwnd_document_viewer.setChecked(self._subwnd_document_viewer.isVisible())
 
     def setCenterWindow(self):
         qtRect = self.frameGeometry()
@@ -204,6 +210,7 @@ class MainWindow(QMainWindow):
 
     def openSetApiKeyDialog(self):
         dlg = SetApiKeyDialog(self)
+        dlg.setCurrentKey(self._opendart.getApiKey())
         dlg.sig_set_key.connect(self.onApiKeyDialogSet)
         dlg.exec_()
 

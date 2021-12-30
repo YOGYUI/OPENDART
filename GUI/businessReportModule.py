@@ -213,7 +213,7 @@ class BusinessReportWidget(QWidget):
             for c in columns:
                 subitem = QTreeWidgetItem()
                 subitem.setText(0, c)
-                subitem.setText(1, df.iloc[r][c])
+                subitem.setText(1, str(df.iloc[r][c]))
                 item.addChild(subitem)
 
     def setCorporationCode(self, corp_code: str):

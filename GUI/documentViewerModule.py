@@ -2,11 +2,12 @@ import os
 import re
 import sys
 import time
-from typing import Union
-from PyQt5.QtCore import QUrl, pyqtSignal, QThread
-from PyQt5.QtGui import QCloseEvent
+from functools import partial
+from typing import Union, List
+from PyQt5.QtCore import QUrl, pyqtSignal, QThread, QSize
+from PyQt5.QtGui import QCloseEvent, QIcon
 from PyQt5.QtWidgets import QWidget, QLineEdit, QPushButton, QLabel, QRadioButton, QButtonGroup, QMessageBox
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QSizePolicy
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QSizePolicy, QTabWidget, QTabBar
 from PyQt5.QtWidgets import QMdiSubWindow
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 CURPATH = os.path.dirname(os.path.abspath(__file__))
@@ -50,8 +51,6 @@ class DocumentViewerWidget(QWidget):
         self.initControl()
         self.initLayout()
         self.setOpenDartObject(dart_obj)
-        self.setMinimumWidth(400)
-        self.setMinimumHeight(400)
 
     def release(self):
         self._webview.close()
@@ -63,6 +62,9 @@ class DocumentViewerWidget(QWidget):
         self._editDocumentNumber.setText(no)
         if load:
             self.loadDocument()
+
+    def getDocumentNumber(self) -> str:
+        return self._editDocumentNumber.text()
 
     def initLayout(self):
         vbox = QVBoxLayout(self)
@@ -155,32 +157,65 @@ class DocumentViewerWidget(QWidget):
 
 
 class DocumentViewerSubWindow(QMdiSubWindow):
-    _widget: DocumentViewerWidget
-
-    sig_close = pyqtSignal(object)
+    _dart_obj: Union[OpenDart, None] = None
+    _doc_widget_list: List[DocumentViewerWidget]
 
     def __init__(self, dart_obj: OpenDart = None, parent=None):
         super().__init__(parent=parent)
-        self._widget = DocumentViewerWidget(dart_obj, self)
-        self._widget.sig_title.connect(self.setWindowTitle)
-        self.setWidget(self._widget)
-        self.setWindowTitle('')
+        self._dart_obj = dart_obj
+        self._tabWidget = QTabWidget()
+        self._doc_widget_list = list()
+        self.setWindowTitle('Document Viewer')
+        self.initControl()
+        self.initLayout()
+        self.setMinimumWidth(400)
+        self.setMinimumHeight(400)
 
-    def closeEvent(self, closeEvent: QCloseEvent) -> None:
-        self._widget.release()
-        self.sig_close.emit(self)
+    def release(self):
+        self.closeAllTab()
+
+    def initLayout(self):
+        self.setWidget(self._tabWidget)
+
+    def initControl(self):
+        self._tabWidget.setTabPosition(QTabWidget.North)
+        self._tabWidget.setMovable(True)
 
     def setOpenDartObject(self, obj: OpenDart):
-        self._widget.setOpenDartObject(obj)
+        for widget in self._doc_widget_list:
+            widget.setOpenDartObject(obj)
 
     def setDocumentNumber(self, document_no: str, load: bool = True):
-        self._widget.setDocumentNumber(document_no, load)
+        doc_no_list = [x.getDocumentNumber() for x in self._doc_widget_list]
+        if document_no in doc_no_list:
+            index = doc_no_list.index(document_no)
+            self._tabWidget.setCurrentIndex(index)
+        else:
+            widget = DocumentViewerWidget(self._dart_obj, self)
+            self._doc_widget_list.append(widget)
+            self._tabWidget.addTab(widget, document_no)
+            index = self._tabWidget.indexOf(widget)
+            btn = QPushButton()
+            btn.setIcon(QIcon('./Resource/close.png'))
+            btn.setFlat(True)
+            btn.setFixedSize(16, 16)
+            btn.setIconSize(QSize(14, 14))
+            btn.clicked.connect(partial(self.closeTab, widget))
+            self._tabWidget.tabBar().setTabButton(index, QTabBar.RightSide, btn)
+            self._tabWidget.setCurrentIndex(index)
+            widget.setDocumentNumber(document_no, load)
 
-    def setDocumentNumberEditVisible(self, visible: bool):
-        self._widget.setDocumentNumberEditVisible(visible)
+    def closeTab(self, viewer: DocumentViewerWidget):
+        index = self._tabWidget.indexOf(viewer)
+        self._tabWidget.removeTab(index)
+        self._doc_widget_list.remove(viewer)
+        viewer.release()
 
-    def isDocumentNumberEditVisible(self) -> bool:
-        return self._widget.isDocumentNumberEditVisible()
+    def closeAllTab(self):
+        for widget in self._doc_widget_list:
+            index = self._tabWidget.indexOf(widget)
+            self._tabWidget.removeTab(index)
+            widget.release()
 
 
 if __name__ == '__main__':

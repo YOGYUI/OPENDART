@@ -5,7 +5,7 @@ from typing import Union
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QShowEvent, QCloseEvent, QResizeEvent, QWheelEvent, QKeyEvent
 from PyQt5.QtWidgets import QWidget, QMessageBox, QTableWidget, QTableWidgetItem, QScrollBar, QLineEdit, QPushButton
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QHeaderView, QAbstractItemView, QSizePolicy
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QHeaderView, QAbstractItemView, QSizePolicy, QCheckBox
 from PyQt5.QtWidgets import QMdiSubWindow, QApplication
 CURPATH = os.path.dirname(os.path.abspath(__file__))
 PROJPATH = os.path.dirname(CURPATH)
@@ -19,6 +19,7 @@ from uiCommon import ReadOnlyTableItem
 class CorporationListWidget(QWidget):
     _opendart: Union[OpenDart, None] = None
     _df_corp_list: pd.DataFrame = None
+    _df_corp_list_display: pd.DataFrame = None
     _search_keyword: str = ''
     _search_index: int = 0
     _df_search: pd.DataFrame = None
@@ -33,6 +34,7 @@ class CorporationListWidget(QWidget):
         self._table = QTableWidget()
         self._tableItemHeight = 30
         self._scrollVertical = QScrollBar()
+        self._checkPublicMarketOnly = QCheckBox('상장회사만 표시')
         self.initControl()
         self.initLayout()
         self.setOpenDartObject(dart_obj)
@@ -44,7 +46,7 @@ class CorporationListWidget(QWidget):
     def initLayout(self):
         vbox = QVBoxLayout(self)
         vbox.setContentsMargins(0, 4, 0, 0)
-        vbox.setSpacing(8)
+        vbox.setSpacing(4)
 
         subwgt = QWidget()
         subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
@@ -53,6 +55,16 @@ class CorporationListWidget(QWidget):
         hbox.addWidget(self._editSearch)
         self._btnSearch.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._btnSearch)
+        vbox.addWidget(subwgt)
+
+        subwgt = QWidget()
+        subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        hbox = QHBoxLayout(subwgt)
+        hbox.setContentsMargins(0, 0, 0, 0)
+        hbox.setSpacing(0)
+        hbox.addWidget(self._checkPublicMarketOnly)
+        self._checkPublicMarketOnly.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(QWidget())
         vbox.addWidget(subwgt)
 
         subwgt = QWidget()
@@ -91,12 +103,18 @@ class CorporationListWidget(QWidget):
         self._editSearch.returnPressed.connect(self.search)
         self._btnSearch.clicked.connect(self.search)
 
+        self._checkPublicMarketOnly.clicked.connect(self.refresh)
+
     def refresh(self):
         if self._opendart is None:
             QMessageBox.warning(self, "Warning", "Open DART object is None!")
             return
 
         self._df_corp_list = self._opendart.loadCorporationDataFrame()
+        if self._checkPublicMarketOnly.isChecked():
+            self._df_corp_list_display = self._df_corp_list[self._df_corp_list['종목코드'].str.len() == 6]
+        else:
+            self._df_corp_list_display = self._df_corp_list
         self.setVerticalScrollbarRange()
         self.drawTable()
 
@@ -104,14 +122,14 @@ class CorporationListWidget(QWidget):
         keyword = self._editSearch.text()
         if len(keyword) == 0:
             return
-        if self._df_corp_list is None:
+        if self._df_corp_list_display is None:
             return
 
-        columns = self._df_corp_list.columns
+        columns = self._df_corp_list_display.columns
         if self._search_keyword != keyword:
             self._search_keyword = keyword
             self._search_index = 0
-            self._df_search = self._df_corp_list[self._df_corp_list[columns[1]].str.contains(keyword)]
+            self._df_search = self._df_corp_list_display[self._df_corp_list_display[columns[1]].str.contains(keyword)]
 
         if len(self._df_search) > 0:
             index_list = self._df_search.index
@@ -144,22 +162,24 @@ class CorporationListWidget(QWidget):
             for c in range(self._table.columnCount()):
                 item = ReadOnlyTableItem()
                 self._table.setItem(r, c, item)
+                if c in [0, 2, 3]:
+                    item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
 
     def setVerticalScrollbarRange(self):
-        if self._df_corp_list is not None:
-            self._scrollVertical.setRange(0, len(self._df_corp_list) - self._table.rowCount())
+        if self._df_corp_list_display is not None:
+            self._scrollVertical.setRange(0, len(self._df_corp_list_display) - self._table.rowCount())
 
     def setVerticalOffset(self, value: int):
         self._scrollVertical.setValue(value)
         self.drawTable()
 
     def drawTable(self):
-        if self._df_corp_list is None or len(self._df_corp_list) == 0:
+        if self._df_corp_list_display is None or len(self._df_corp_list_display) == 0:
             return
 
         voffset = self._scrollVertical.value()
         for row in range(self._table.rowCount()):
-            record = self._df_corp_list.loc[row + voffset].values
+            record = self._df_corp_list_display.iloc[row + voffset].values
             item = self._table.item(row, 0)
             item.setText(record[0])
             item = self._table.item(row, 1)
@@ -184,8 +204,8 @@ class CorporationListWidget(QWidget):
             value = max(0, offset - 1)
             self.setVerticalOffset(value)
         elif delta_y < 0:  # Wheel Down
-            if self._df_corp_list is not None:
-                value = max(0, min(len(self._df_corp_list) - self._table.rowCount(), offset + 1))
+            if self._df_corp_list_display is not None:
+                value = max(0, min(len(self._df_corp_list_display) - self._table.rowCount(), offset + 1))
                 self.setVerticalOffset(value)
 
     def keyPressEvent(self, a0: QKeyEvent) -> None:
@@ -194,8 +214,8 @@ class CorporationListWidget(QWidget):
             value = max(0, offset - 1)
             self.setVerticalOffset(value)
         elif a0.key() == Qt.Key_Down:
-            if self._df_corp_list is not None:
-                value = max(0, min(len(self._df_corp_list) - self._table.rowCount(), offset + 1))
+            if self._df_corp_list_display is not None:
+                value = max(0, min(len(self._df_corp_list_display) - self._table.rowCount(), offset + 1))
                 self.setVerticalOffset(value)
         else:
             modifier = QApplication.keyboardModifiers()
@@ -205,11 +225,11 @@ class CorporationListWidget(QWidget):
                     self._editSearch.setFocus()
 
     def onTableItemDoubleClicked(self, item: QTableWidgetItem):
-        if self._df_corp_list is None or len(self._df_corp_list) == 0:
+        if self._df_corp_list_display is None or len(self._df_corp_list_display) == 0:
             return
         row = item.row() + self._scrollVertical.value()
-        record = self._df_corp_list.loc[row]
-        columns = self._df_corp_list.columns
+        record = self._df_corp_list_display.iloc[row]
+        columns = self._df_corp_list_display.columns
         corp_code = record[columns[0]]
         corp_name = record[columns[1]]
         self.sig_corporation_code.emit(corp_code)

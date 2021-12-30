@@ -274,7 +274,7 @@ class OpenDartCore:
             try:
                 with open(self._path_corp_df_pkl_file, 'rb') as fp:
                     self._df_corplist = pickle.load(fp)
-                    result = True
+                    result = isinstance(self._df_corplist, pd.DataFrame)
             except Exception:
                 pass
         return result
@@ -741,7 +741,12 @@ class OpenDart(OpenDartCore):
             search_date = date.strftime('%Y.%m.%d')
         else:
             search_date = date
-        params = {'selectDate': search_date}
+        params = {
+            'selectDate': search_date,
+            'sort': '',
+            'series': '',
+            'mdayCnt': 0
+        }
         response = self._requestGet(url, params)
         if response is None:
             return pd.DataFrame()

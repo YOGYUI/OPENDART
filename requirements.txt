@@ -4,5 +4,5 @@ pandas
 pymysql
 requests
 requests-HTML
-PyQtWebEngine
+PyQtWebEngine==5.15.3
 python-dateutil
