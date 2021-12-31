@@ -8,11 +8,11 @@ class SetApiKeyDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self._editApiKey = QLineEdit()
-        self._btnApply = QPushButton('Apply')
-        self._btnCancel = QPushButton('Cancel')
+        self._btnApply = QPushButton('적용')
+        self._btnCancel = QPushButton('취소')
         self.initControl()
         self.initLayout()
-        self.setWindowTitle('Set API Key')
+        self.setWindowTitle('OpenDART API Key 설정')
         self.setMinimumWidth(400)
 
     def initLayout(self):
@@ -30,13 +30,16 @@ class SetApiKeyDialog(QDialog):
         vbox.addWidget(subwgt)
 
     def initControl(self):
-        self._editApiKey.setPlaceholderText('Type API Key')
+        self._editApiKey.setPlaceholderText('OEPNDART API Key를 입력하세요')
         self._btnApply.clicked.connect(self.onClickBtnApply)
-        self._btnCancel.clicked.connect(self.close)
+        self._btnCancel.clicked.connect(self.onClickBtnCancel)
 
     def onClickBtnApply(self):
         key_string = self._editApiKey.text()
         self.sig_set_key.emit(key_string)
+        self.close()
+
+    def onClickBtnCancel(self):
         self.close()
 
     def setCurrentKey(self, key: str):

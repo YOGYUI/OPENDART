@@ -1,6 +1,7 @@
 import os
 import sys
-from typing import Union, List
+from functools import partial
+from typing import Union, List, Tuple
 from PyQt5.QtGui import QShowEvent, QCloseEvent
 from PyQt5.QtWidgets import QMainWindow, QMdiSubWindow, QMessageBox, QMenu, QMenuBar, QDesktopWidget
 CURPATH = os.path.dirname(os.path.abspath(__file__))
@@ -9,15 +10,18 @@ sys.path.extend([CURPATH, PROJPATH])
 sys.path = list(set(sys.path))
 del CURPATH, PROJPATH
 from opendart import OpenDart
-from mdiAreaModule import MyMDIArea
-from companyInformationModule import CompanyInformationSubWindow
-from dailyDocumentModule import DailyDocumentSubWindow
-from searchDocumentModule import SearchDocumentSubWindow
-from documentViewerModule import DocumentViewerSubWindow
-from corporationListModule import CorporationListSubWindow
-from businessReportModule import BusinessReportSubWindow
-from ShareDisclosureModule import ShareDisclosureSubWindow
-from setApiKeyModule import SetApiKeyDialog
+from SubWindows import CompanyInformationSubWindow
+from SubWindows import DailyDocumentSubWindow
+from SubWindows import SearchDocumentSubWindow
+from SubWindows import DocumentViewerSubWindow
+from SubWindows import CorporationListSubWindow
+from SubWindows import BusinessReportSubWindow
+from SubWindows import ShareDisclosureSubWindow
+from SubWindows import RegistrationStatementSubWindow
+from SubWindows import MajorReportSubWindow
+from SubWindows import FinanceInformationSubWindow
+from Misc import SetApiKeyDialog
+from Misc import MyMDIArea
 from Util.functions import *
 from uiCommon import makeQAction
 
@@ -34,14 +38,24 @@ class MainWindow(QMainWindow):
     _subwnd_corp_list: CorporationListSubWindow
     _subwnd_business_report: BusinessReportSubWindow
     _subwnd_share_disclosure: ShareDisclosureSubWindow
+    _subwnd_registration_statement: RegistrationStatementSubWindow
+    _subwnd_major_report: MajorReportSubWindow
+    _subwnd_financial_info: FinanceInformationSubWindow
+    _subwnd_document_viewer: DocumentViewerSubWindow
 
+    _menu_visible_subwnd_list: List[Tuple[QAction, QMdiSubWindow]]
+    """
     _menu_visible_subwnd_company_info: QAction
     _menu_visible_subwnd_daily_docs: QAction
     _menu_visible_subwnd_search_doc: QAction
     _menu_visible_subwnd_corp_list: QAction
     _menu_visible_subwnd_business_report: QAction
     _menu_visible_subwnd_share_disclosure: QAction
+    _menu_visible_subwnd_registration_statement: QAction
+    _menu_visible_subwnd_major_report: QAction
+    _menu_visible_subwnd_financial_info: QAction
     _menu_visible_subwnd_document_viewer: QAction
+    """
 
     def __init__(self, dart_obj: OpenDart = None, parent=None, init_width: int = 800, init_height: int = 800):
         super().__init__(parent=parent)
@@ -54,13 +68,18 @@ class MainWindow(QMainWindow):
         self._subwnd_corp_list = CorporationListSubWindow(dart_obj, self)
         self._subwnd_business_report = BusinessReportSubWindow(dart_obj, self)
         self._subwnd_share_disclosure = ShareDisclosureSubWindow(dart_obj, self)
+        self._subwnd_registration_statement = RegistrationStatementSubWindow(dart_obj, self)
+        self._subwnd_major_report = MajorReportSubWindow(dart_obj, self)
+        self._subwnd_financial_info = FinanceInformationSubWindow(dart_obj, self)
         self._subwnd_document_viewer = DocumentViewerSubWindow(dart_obj, self)
+        self._menu_visible_subwnd_list = list()
 
         self.initControl()
         self.initLayout()
         self.initMenuBar()
         self.setOpenDartObject(dart_obj)
         self.setWindowTitle('DART')
+        self.setWindowIcon(QIcon('./Resource/dart.ico'))
         self.resize(init_width, init_height)
 
     def release(self):
@@ -74,30 +93,50 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._mdiArea)
 
     def initControl(self):
-        self._mdiArea.setDisplayText('[DART Application]\nDeveloper: YOGYUI')
         self._mdiArea.addSubWindow(self._subwnd_company_info)
         self._subwnd_list.append(self._subwnd_company_info)
+
         self._mdiArea.addSubWindow(self._subwnd_daily_docs)
         self._subwnd_daily_docs.sig_open_document.connect(self.openDocument)
         self._subwnd_daily_docs.sig_corporation_code.connect(self.loadCompanyInformation)
         self._subwnd_list.append(self._subwnd_daily_docs)
+
         self._mdiArea.addSubWindow(self._subwnd_search_doc)
         self._subwnd_search_doc.sig_open_document.connect(self.openDocument)
         self._subwnd_search_doc.sig_corporation_code.connect(self.loadCompanyInformation)
         self._subwnd_list.append(self._subwnd_search_doc)
+
         self._mdiArea.addSubWindow(self._subwnd_corp_list)
         self._subwnd_corp_list.sig_corporation_code.connect(self.loadCompanyInformation)
         self._subwnd_corp_list.sig_corporation_name.connect(self.setSearchCorporationName)
         self._subwnd_list.append(self._subwnd_corp_list)
+
         self._mdiArea.addSubWindow(self._subwnd_business_report)
+        self._subwnd_business_report.sig_open_document.connect(self.openDocument)
         self._subwnd_list.append(self._subwnd_business_report)
+
         self._mdiArea.addSubWindow(self._subwnd_share_disclosure)
+        self._subwnd_share_disclosure.sig_open_document.connect(self.openDocument)
         self._subwnd_list.append(self._subwnd_share_disclosure)
+
+        self._mdiArea.addSubWindow(self._subwnd_registration_statement)
+        self._subwnd_registration_statement.sig_open_document.connect(self.openDocument)
+        self._subwnd_list.append(self._subwnd_registration_statement)
+
+        self._mdiArea.addSubWindow(self._subwnd_major_report)
+        self._subwnd_major_report.sig_open_document.connect(self.openDocument)
+        self._subwnd_list.append(self._subwnd_major_report)
+
+        self._mdiArea.addSubWindow(self._subwnd_financial_info)
+        self._subwnd_financial_info.sig_open_document.connect(self.openDocument)
+        self._subwnd_list.append(self._subwnd_financial_info)
+
         self._mdiArea.addSubWindow(self._subwnd_document_viewer)
         self._subwnd_list.append(self._subwnd_document_viewer)
 
         for wnd in self._subwnd_list:
             wnd.resize(600, 600)
+            wnd.hide()
         self._mdiArea.cascadeSubWindows()
 
     def initMenuBar(self):
@@ -107,53 +146,28 @@ class MainWindow(QMainWindow):
         menuFile = QMenu('&File', menubar)
         menubar.addAction(menuFile.menuAction())
         menu_open_apikey_dlg = makeQAction(
-            parent=self, text="Set OpenDART API Key", triggered=self.openSetApiKeyDialog)
+            parent=self, text="OpenDART API Key 설정", triggered=self.openSetApiKeyDialog)
         menuFile.addAction(menu_open_apikey_dlg)
         menuFile.addSeparator()
-        menu_close = makeQAction(parent=self, text="Close", triggered=self.close)
+        menu_close = makeQAction(parent=self, text="종료", triggered=self.close)
         menuFile.addAction(menu_close)
 
         menuView = QMenu('&View', menubar)
         menubar.addAction(menuView.menuAction())
         menuView.aboutToShow.connect(self.onMenuViewAboutToShow)
-        self._menu_visible_subwnd_company_info = makeQAction(
-            parent=self, text="Company Information", checkable=True,
-            triggered=lambda: self.toggleSubWindowVisible(self._subwnd_company_info))
-        self._menu_visible_subwnd_company_info.setIcon(self._subwnd_company_info.windowIcon())
-        menuView.addAction(self._menu_visible_subwnd_company_info)
-        self._menu_visible_subwnd_daily_docs = makeQAction(
-            parent=self, text="Daily Document List", checkable=True,
-            triggered=lambda: self.toggleSubWindowVisible(self._subwnd_daily_docs))
-        self._menu_visible_subwnd_daily_docs.setIcon(self._subwnd_daily_docs.windowIcon())
-        menuView.addAction(self._menu_visible_subwnd_daily_docs)
-        self._menu_visible_subwnd_search_doc = makeQAction(
-            parent=self, text="Search Document", checkable=True,
-            triggered=lambda: self.toggleSubWindowVisible(self._subwnd_search_doc))
-        self._menu_visible_subwnd_search_doc.setIcon(self._subwnd_search_doc.windowIcon())
-        menuView.addAction(self._menu_visible_subwnd_search_doc)
-        self._menu_visible_subwnd_corp_list = makeQAction(
-            parent=self, text="Corporation List", checkable=True,
-            triggered=lambda: self.toggleSubWindowVisible(self._subwnd_corp_list))
-        self._menu_visible_subwnd_corp_list.setIcon(self._subwnd_corp_list.windowIcon())
-        menuView.addAction(self._menu_visible_subwnd_corp_list)
-        self._menu_visible_subwnd_business_report = makeQAction(
-            parent=self, text="Business Report Detail", checkable=True,
-            triggered=lambda: self.toggleSubWindowVisible(self._subwnd_business_report))
-        self._menu_visible_subwnd_business_report.setIcon(self._subwnd_business_report.windowIcon())
-        menuView.addAction(self._menu_visible_subwnd_business_report)
-        self._menu_visible_subwnd_share_disclosure = makeQAction(
-            parent=self, text="Share Disclosure Detail", checkable=True,
-            triggered=lambda: self.toggleSubWindowVisible(self._subwnd_share_disclosure))
-        self._menu_visible_subwnd_share_disclosure.setIcon(self._subwnd_share_disclosure.windowIcon())
-        menuView.addAction(self._menu_visible_subwnd_share_disclosure)
-        self._menu_visible_subwnd_document_viewer = makeQAction(
-            parent=self, text="Document Viewer", checkable=True,
-            triggered=lambda: self.toggleSubWindowVisible(self._subwnd_document_viewer))
-        self._menu_visible_subwnd_document_viewer.setIcon(self._subwnd_document_viewer.windowIcon())
-        menuView.addAction(self._menu_visible_subwnd_document_viewer)
+
+        for subwnd in self._subwnd_list:
+            action = makeQAction(
+                parent=self, text=subwnd.windowTitle(), checkable=True,
+                triggered=partial(self.toggleSubWindowVisible, subwnd))
+            self._menu_visible_subwnd_list.append((action, subwnd))
+        self._menu_visible_subwnd_list.sort(key=lambda x: x[1].windowTitle())
+        for elem in self._menu_visible_subwnd_list:
+            action = elem[0]
+            menuView.addAction(action)
         menuView.addSeparator()
         menu_close_all_subwnd = makeQAction(
-            parent=self, text="Close All SubWindows", triggered=self._mdiArea.closeAllSubWindows)
+            parent=self, text="모든 창 닫기", triggered=self._mdiArea.closeAllSubWindows)
         menuView.addAction(menu_close_all_subwnd)
 
     def setOpenDartObject(self, obj: OpenDart):
@@ -175,6 +189,9 @@ class MainWindow(QMainWindow):
         self._subwnd_company_info.setCorporationCodeAndRefresh(corp_code)
         self._subwnd_business_report.setCorporationCode(corp_code)
         self._subwnd_share_disclosure.setCorporationCode(corp_code)
+        self._subwnd_registration_statement.setCorporationCode(corp_code)
+        self._subwnd_major_report.setCorporationCode(corp_code)
+        self._subwnd_financial_info.setCorporationCode(corp_code)
 
     def setSearchCorporationName(self, corp_name: str):
         self._subwnd_search_doc.setCorporationName(corp_name)
@@ -194,13 +211,9 @@ class MainWindow(QMainWindow):
             subwnd.show()
 
     def onMenuViewAboutToShow(self):
-        self._menu_visible_subwnd_company_info.setChecked(self._subwnd_company_info.isVisible())
-        self._menu_visible_subwnd_daily_docs.setChecked(self._subwnd_daily_docs.isVisible())
-        self._menu_visible_subwnd_search_doc.setChecked(self._subwnd_search_doc.isVisible())
-        self._menu_visible_subwnd_corp_list.setChecked(self._subwnd_corp_list.isVisible())
-        self._menu_visible_subwnd_business_report.setChecked(self._subwnd_business_report.isVisible())
-        self._menu_visible_subwnd_share_disclosure.setChecked(self._subwnd_share_disclosure.isVisible())
-        self._menu_visible_subwnd_document_viewer.setChecked(self._subwnd_document_viewer.isVisible())
+        for elem in self._menu_visible_subwnd_list:
+            action, subwnd = elem[0], elem[1]
+            action.setChecked(subwnd.isVisible())
 
     def setCenterWindow(self):
         qtRect = self.frameGeometry()

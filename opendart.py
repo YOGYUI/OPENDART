@@ -4,7 +4,6 @@ import io
 import re
 import sys
 import time
-import queue
 import shutil
 import pickle
 import pymysql
@@ -25,7 +24,6 @@ from typing import List, Union, Tuple, Iterable
 from config import OpenDartConfiguration
 from define import *
 from Util import Callback
-# TODO: change data path
 
 
 url_opendart = 'https://opendart.fss.or.kr/api/{}'
@@ -81,6 +79,7 @@ class OpenDartCore:
         self._path_data_dir: str = os.path.join(curpath, 'Data')
         if not os.path.isdir(self._path_data_dir):
             os.mkdir(self._path_data_dir)
+        self._path_data_dir_origin = self._path_data_dir
         self._path_corp_df_pkl_file: str = os.path.join(self._path_data_dir, 'Corplist.pkl')
 
         self._path_log_dir: str = os.path.join(curpath, 'Log')
@@ -295,13 +294,16 @@ class OpenDartCore:
 
         if self._rename_dataframe_column_names:
             self._df_corplist.rename(columns=ColumnNames.corp_code, inplace=True)
+
         # change 'modify_date' type (str -> datetime)
         self._df_corplist['최종변경일자'] = pd.to_datetime(self._df_corplist['최종변경일자'], format='%Y%m%d')
+
         # drop test record (금감원테스트)
         colnames = self._df_corplist.columns
         row_unnecessary = self._df_corplist[self._df_corplist[colnames[0]] == '99999999']
         index = row_unnecessary.index
         self._df_corplist.drop(index, inplace=True)
+        self._df_corplist.reset_index(drop=True, inplace=True)
 
     def _serializeCorporationDataFrame(self):
         with open(self._path_corp_df_pkl_file, 'wb') as fp:
@@ -373,6 +375,11 @@ class OpenDartCore:
         result = self._asession_html.run(lambda: self._asyncGet(url, params))
         response = result[0]
         return response
+
+    def _requestGetList(self, url: str, params_list: List[dict]) -> List[requests.models.Response]:
+        # TODO: use event loop
+        result = self._asession_html.run(*[partial(self._asyncGet, url, x) for x in params_list])
+        return result
 
     async def _asyncGetRender(self, url: str,  params: dict = None, script: str = None) -> tuple:
         try:
@@ -476,7 +483,7 @@ class OpenDartCore:
             params['end_de'] = dateEnd.strip()
         return params
 
-    def _makeHighlightsDataFrameCommon(
+    def _makeMajorReportDataFrameCommon(
             self, corp_code: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date],
             api: str, col_names: dict
     ) -> pd.DataFrame:
@@ -639,6 +646,12 @@ class OpenDartCore:
 
         self._mysql_connection.commit()
 
+    def changeDataStoragePath(self, path: str):
+        self._path_data_dir = path
+
+    def recoverDataStoragePath(self):
+        self._path_data_dir = self._path_data_dir_origin
+
     @abstractmethod
     def loadCorporationDataFrame(self, reload: bool = False) -> pd.DataFrame:
         self._df_corplist = pd.DataFrame()
@@ -721,32 +734,25 @@ class OpenDartCore:
 
 
 class OpenDart(OpenDartCore):
-    """ 유틸리티"""
+    """ 유틸리티 """
 
     def getDailyUploadedDocuments(self, date: Union[datetime.date, str], corpClass: str = None) -> pd.DataFrame:
         """
         특정 날짜에 공시된 모든 문서 리스트를 데이터프레임으로 반환
 
         :param date: 검색대상일자 (str일 경우 format = YYYY.mm.dd)
-        :param corpClass: 법인구분 (Y(유가), K(코스닥), N(코넥스), E(기타)), None일 경우 모두 검색
+        :param corpClass: 법인구분 (Y(유가), K(코스닥), N(코넥스), E(기타)), None일 경우 모두 검색 (All)
         :return: pandas DataFrame (columns: 시간, 고유번호, 공시대상회사, 보고서명, 보고서번호, 제출인, 접수일자)
         """
         if corpClass in ['Y', 'K', 'N']:
             url = f'http://dart.fss.or.kr/dsac001/main{corpClass}.do'
-        elif corpClass == 'E':
+        elif corpClass in ['E', 'G']:
             url = f'http://dart.fss.or.kr/dsac001/mainG.do'
         else:
             url = 'http://dart.fss.or.kr/dsac001/mainAll.do'
-        if isinstance(date, datetime.date):
-            search_date = date.strftime('%Y.%m.%d')
-        else:
-            search_date = date
-        params = {
-            'selectDate': search_date,
-            'sort': '',
-            'series': '',
-            'mdayCnt': 0
-        }
+
+        search_date = date.strftime('%Y.%m.%d') if isinstance(date, datetime.date) else date
+        params = {'selectDate': search_date, 'mdayCnt': 0}
         response = self._requestGet(url, params)
         if response is None:
             return pd.DataFrame()
@@ -763,13 +769,8 @@ class OpenDart(OpenDartCore):
             df_result = self._createEmptyDailyDocumentDataframe()
 
         if page_count > 1:
-            url = 'http://dart.fss.or.kr/dsac001/search.ax'
-            data_list = [{
-                'currentPage': x + 1,
-                'selectDate': date,
-                'mdayCnt': 0
-            } for x in range(1, page_count)]
-            responses = self._requestPost(url, data_list)
+            params_list = [{'selectDate': date, 'mdayCnt': 0, 'currentPage': x + 1} for x in range(1, page_count)]
+            responses = self._requestGetList(url, params_list)
             df_list = [self._makeDataframeFromDailyDocumentElementTree(x.html.lxml) for x in responses]
             df_result = [df_result]
             df_result.extend(df_list)
@@ -1782,7 +1783,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get bankruptcy occurrence info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "dfOcr.json", ColumnNames.bankruptcy)
         return df_result
 
@@ -1801,7 +1802,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get business suspension info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "bsnSp.json", ColumnNames.suspension)
         return df_result
 
@@ -1820,7 +1821,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get rehabilitation procedure initiate info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "ctrcvsBgrq.json", ColumnNames.rehabilitation)
         return df_result
 
@@ -1839,7 +1840,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get dissolution reason occurrence info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "dsRsOcr.json", ColumnNames.dissolution)
         return df_result
 
@@ -1858,7 +1859,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get rights issue decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "piicDecsn.json", ColumnNames.rights_issue_decision)
         return df_result
 
@@ -1877,7 +1878,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get bonus issue decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "fricDecsn.json", ColumnNames.bonus_issue_decision)
         return df_result
 
@@ -1896,7 +1897,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get rights/bonus issue decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "pifricDecsn.json", ColumnNames.rights_bonus_issue_decision)
         return df_result
 
@@ -1915,7 +1916,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get capital reduction decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "crDecsn.json", ColumnNames.capital_reduction_decision)
         return df_result
 
@@ -1934,7 +1935,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get bank management procedure initiate info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "bnkMngtPcbg.json", ColumnNames.bank_management_procedure_initiate)
         return df_result
 
@@ -1953,7 +1954,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get litigation info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "lwstLg.json", ColumnNames.litigation)
         return df_result
 
@@ -1972,7 +1973,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get overseas listing decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "ovLstDecsn.json", ColumnNames.overseas_listing_decision)
         return df_result
 
@@ -1991,7 +1992,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get overseas delisting decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "ovDlstDecsn.json", ColumnNames.overseas_delisting_decision)
         return df_result
 
@@ -2010,7 +2011,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get overseas listing info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "ovLst.json", ColumnNames.overseas_listing)
         return df_result
 
@@ -2029,7 +2030,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get overseas delisting info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "ovDlst.json", ColumnNames.overseas_delisting)
         return df_result
 
@@ -2048,7 +2049,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get convertible bonds publish decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "cvbdIsDecsn.json", ColumnNames.conv_bonds_publish_decision)
         return df_result
 
@@ -2067,7 +2068,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get bond with warrant publish decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "bdwtIsDecsn.json", ColumnNames.bond_with_warrant_publish_decision)
         return df_result
 
@@ -2086,7 +2087,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get exchangeable bonds publish decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "exbdIsDecsn.json", ColumnNames.exchangeable_bonds_publish_decision)
         return df_result
 
@@ -2105,7 +2106,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get bank management procedure stop info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "bnkMngtPcsp.json", ColumnNames.bank_management_procedure_stop)
         return df_result
 
@@ -2125,7 +2126,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get amortization contingent convertible bond publish decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "wdCocobdIsDecsn.json", ColumnNames.amortization_cocobond_publish_decision)
         return df_result
 
@@ -2144,7 +2145,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get asset transfer putback option info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "astInhtrfEtcPtbkOpt.json", ColumnNames.asset_transfer_putback_option)
         return df_result
 
@@ -2163,7 +2164,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get other corp stock equity securities transfer decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "otcprStkInvscrTrfDecsn.json", ColumnNames.other_corp_stock_transfer_decision)
         return df_result
 
@@ -2182,7 +2183,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get tangible assets transfer decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "tgastTrfDecsn.json", ColumnNames.tangible_transfer_decision)
         return df_result
 
@@ -2201,7 +2202,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get tangible assets acquisition decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "tgastInhDecsn.json", ColumnNames.tangible_acquisition_decision)
         return df_result
 
@@ -2220,7 +2221,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get other corp stock equity securities acquisition decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "otcprStkInvscrInhDecsn.json", ColumnNames.other_corp_stock_acq_decision)
         return df_result
 
@@ -2239,7 +2240,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get business transfer decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "bsnTrfDecsn.json", ColumnNames.business_transfer_decision)
         return df_result
 
@@ -2258,7 +2259,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get business acquisition decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "bsnInhDecsn.json", ColumnNames.business_acquisition_decision)
         return df_result
 
@@ -2277,7 +2278,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get treasury stock acqusition contract termination decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "tsstkAqTrctrCcDecsn.json", ColumnNames.treasury_acq_contract_term_decision)
         return df_result
 
@@ -2296,7 +2297,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get treasury stock acqusition contract conclusion decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "tsstkAqTrctrCnsDecsn.json", ColumnNames.treasury_acq_contract_conc_decision)
         return df_result
 
@@ -2315,7 +2316,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get treasury stock disposal decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "tsstkDpDecsn.json", ColumnNames.treasury_stock_disposal_decision)
         return df_result
 
@@ -2334,7 +2335,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get treasury stock acquisition decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "tsstkAqDecsn.json", ColumnNames.treasury_stock_acquisition_decision)
         return df_result
 
@@ -2353,7 +2354,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get stock exchange transfer decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "stkExtrDecsn.json", ColumnNames.stock_exchange_transfer)
         return df_result
 
@@ -2372,7 +2373,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get company division merge decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "cmpDvmgDecsn.json", ColumnNames.company_division_merge)
         return df_result
 
@@ -2391,7 +2392,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get company division decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "cmpDvDecsn.json", ColumnNames.company_division)
         return df_result
 
@@ -2410,7 +2411,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get company merge decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "cmpMgDecsn.json", ColumnNames.company_merge)
         return df_result
 
@@ -2429,7 +2430,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get debentures acquisition decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "stkrtbdInhDecsn.json", ColumnNames.debentures_acquisition)
         return df_result
 
@@ -2448,7 +2449,7 @@ class OpenDart(OpenDartCore):
         """
         info = f"(corp code: {corpCode})"
         self._log("get debentures transfer decision info " + info, LogType.Command)
-        df_result = self._makeHighlightsDataFrameCommon(
+        df_result = self._makeMajorReportDataFrameCommon(
             corpCode, dateBegin, dateEnd, "stkrtbdTrfDecsn.json", ColumnNames.debentures_transfer)
         return df_result
 
@@ -2484,6 +2485,10 @@ class OpenDart(OpenDartCore):
         df_detail = self._makeDataFrameFromJsonGroup(json, '당사회사에관한사항', ColumnNames.declaration_detail)
         return df_normal, df_stock, df_detail
 
+    @staticmethod
+    def getStockExchangeInfoTitles() -> Tuple[str, str, str]:
+        return '일반사항', '발행증권', '당사 회사에 관한사항'
+
     def getMergeInfo(
             self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -2513,6 +2518,10 @@ class OpenDart(OpenDartCore):
         df_stock = self._makeDataFrameFromJsonGroup(json, '발행증권', ColumnNames.declaration_stock)
         df_detail = self._makeDataFrameFromJsonGroup(json, '당사회사에관한사항', ColumnNames.declaration_detail)
         return df_normal, df_stock, df_detail
+
+    @staticmethod
+    def getMergeInfoTitles() -> Tuple[str, str, str]:
+        return '일반사항', '발행증권', '당사 회사에 관한사항'
 
     def getDepositaryReceiptInfo(
             self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
@@ -2548,6 +2557,10 @@ class OpenDart(OpenDartCore):
         df_seller = self._makeDataFrameFromJsonGroup(json, '매출인에관한사항', ColumnNames.declaration_seller)
         return df_normal, df_type, df_takeover, df_purpose, df_seller
 
+    @staticmethod
+    def getDepositaryReceiptInfoTitles() -> Tuple[str, str, str, str, str]:
+        return '일반사항', '증권의 종류', '인수인 정보', '자금의 사용목적', '매출인에 관한 사항'
+
     def getDebtSecuritiesInfo(
             self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -2579,6 +2592,10 @@ class OpenDart(OpenDartCore):
         df_purpose = self._makeDataFrameFromJsonGroup(json, '자금의사용목적', ColumnNames.declaration_purpose)
         df_seller = self._makeDataFrameFromJsonGroup(json, '매출인에관한사항', ColumnNames.declaration_seller)
         return df_normal, df_takeover, df_purpose, df_seller
+
+    @staticmethod
+    def getDebtSecuritiesInfoTitles() -> Tuple[str, str, str, str]:
+        return '일반사항', '인수인 정보', '자금의 사용목적', '매출인에 관한 사항'
 
     def getEquitySecuritiesInfo(
             self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
@@ -2617,6 +2634,10 @@ class OpenDart(OpenDartCore):
         df_putback = self._makeDataFrameFromJsonGroup(json, '일반청약자환매청구권', ColumnNames.declaration_putback)
         return df_normal, df_type, df_takeover, df_purpose, df_seller, df_putback
 
+    @staticmethod
+    def getEquitySecuritiesInfoTitles() -> Tuple[str, str, str, str, str, str]:
+        return '일반사항', '증권의 종류', '인수인 정보', '자금의 사용 목적', '매출인에 관한 사항', '일반 청약자 환매 청구권'
+
     def getDivisionInfo(
             self, corpCode: str, dateBegin: Union[str, datetime.date], dateEnd: Union[str, datetime.date]
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -2646,3 +2667,7 @@ class OpenDart(OpenDartCore):
         df_stock = self._makeDataFrameFromJsonGroup(json, '발행증권', ColumnNames.declaration_stock)
         df_detail = self._makeDataFrameFromJsonGroup(json, '당사회사에관한사항', ColumnNames.declaration_detail)
         return df_normal, df_stock, df_detail
+
+    @staticmethod
+    def getDivisionInfoTitles() -> Tuple[str, str, str]:
+        return '일반사항', '발행증권', '당사 회사에 관한사항'

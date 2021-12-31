@@ -30,10 +30,11 @@ class CorporationListWidget(QWidget):
     def __init__(self, dart_obj: OpenDart = None, parent=None):
         super().__init__(parent=parent)
         self._editSearch = QLineEdit()
-        self._btnSearch = QPushButton('SEARCH')
+        self._btnSearch = QPushButton('검색')
         self._table = QTableWidget()
         self._tableItemHeight = 30
         self._scrollVertical = QScrollBar()
+        self._checkExactMatch = QCheckBox('일치')
         self._checkPublicMarketOnly = QCheckBox('상장회사만 표시')
         self.initControl()
         self.initLayout()
@@ -55,6 +56,8 @@ class CorporationListWidget(QWidget):
         hbox.addWidget(self._editSearch)
         self._btnSearch.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._btnSearch)
+        self._checkExactMatch.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(self._checkExactMatch)
         vbox.addWidget(subwgt)
 
         subwgt = QWidget()
@@ -103,7 +106,8 @@ class CorporationListWidget(QWidget):
         self._editSearch.returnPressed.connect(self.search)
         self._btnSearch.clicked.connect(self.search)
 
-        self._checkPublicMarketOnly.clicked.connect(self.refresh)
+        self._checkPublicMarketOnly.clicked.connect(self.onClickCheckMarketOnly)
+        self._checkExactMatch.clicked.connect(self.onClickCheckExactMatch)
 
     def refresh(self):
         if self._opendart is None:
@@ -113,10 +117,18 @@ class CorporationListWidget(QWidget):
         self._df_corp_list = self._opendart.loadCorporationDataFrame()
         if self._checkPublicMarketOnly.isChecked():
             self._df_corp_list_display = self._df_corp_list[self._df_corp_list['종목코드'].str.len() == 6]
+            self._df_corp_list_display.reset_index(drop=True, inplace=True)
         else:
             self._df_corp_list_display = self._df_corp_list
         self.setVerticalScrollbarRange()
         self.drawTable()
+
+    def onClickCheckMarketOnly(self):
+        self._search_keyword = ''
+        self.refresh()
+
+    def onClickCheckExactMatch(self):
+        self._search_keyword = ''
 
     def search(self):
         keyword = self._editSearch.text()
@@ -129,7 +141,11 @@ class CorporationListWidget(QWidget):
         if self._search_keyword != keyword:
             self._search_keyword = keyword
             self._search_index = 0
-            self._df_search = self._df_corp_list_display[self._df_corp_list_display[columns[1]].str.contains(keyword)]
+            col = columns[1]
+            if self._checkExactMatch.isChecked():
+                self._df_search = self._df_corp_list_display[self._df_corp_list_display[col].str.fullmatch(keyword)]
+            else:
+                self._df_search = self._df_corp_list_display[self._df_corp_list_display[col].str.contains(keyword)]
 
         if len(self._df_search) > 0:
             index_list = self._df_search.index
@@ -248,7 +264,7 @@ class CorporationListSubWindow(QMdiSubWindow):
         self._widget.sig_corporation_code.connect(self.sig_corporation_code.emit)
         self._widget.sig_corporation_name.connect(self.sig_corporation_name.emit)
         self.setWidget(self._widget)
-        self.setWindowTitle('Corporation List')
+        self.setWindowTitle('기업 목록')
 
     def showEvent(self, showEvent: QShowEvent) -> None:
         self._widget.setTableItemLayout()

@@ -84,19 +84,19 @@ class DocumentViewerWidget(QWidget):
         vbox.addWidget(self._widgetDocumentNumber)
         self._widgetDocumentNumber.hide()
 
+        vbox.addWidget(self._webview)
+
         subwgt = QWidget()
         subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         hbox = QHBoxLayout(subwgt)
         hbox.setContentsMargins(2, 0, 0, 0)
         hbox.setSpacing(4)
+        hbox.addWidget(QWidget())
         self._radioLoadDartPage.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._radioLoadDartPage)
         self._radioLoadHtmlFile.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._radioLoadHtmlFile)
-        hbox.addWidget(QWidget())
         vbox.addWidget(subwgt)
-
-        vbox.addWidget(self._webview)
 
     def initControl(self):
         self._btnLoadDocument.clicked.connect(self.loadDocument)
@@ -163,9 +163,10 @@ class DocumentViewerSubWindow(QMdiSubWindow):
     def __init__(self, dart_obj: OpenDart = None, parent=None):
         super().__init__(parent=parent)
         self._dart_obj = dart_obj
+        self._btnSave = QPushButton('SAVE')
         self._tabWidget = QTabWidget()
         self._doc_widget_list = list()
-        self.setWindowTitle('Document Viewer')
+        self.setWindowTitle('공시 문서 뷰어')
         self.initControl()
         self.initLayout()
         self.setMinimumWidth(400)
@@ -175,11 +176,26 @@ class DocumentViewerSubWindow(QMdiSubWindow):
         self.closeAllTab()
 
     def initLayout(self):
-        self.setWidget(self._tabWidget)
+        widget = QWidget()
+        vbox = QVBoxLayout(widget)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(4)
+        """
+        subwgt = QWidget()
+        hbox = QHBoxLayout(subwgt)
+        hbox.setContentsMargins(4, 4, 4, 0)
+        hbox.setSpacing(4)
+        hbox.addWidget(self._btnSave)
+        hbox.addWidget(QWidget())
+        vbox.addWidget(subwgt)
+        """
+        vbox.addWidget(self._tabWidget)
+        self.setWidget(widget)
 
     def initControl(self):
         self._tabWidget.setTabPosition(QTabWidget.North)
         self._tabWidget.setMovable(True)
+        self._btnSave.clicked.connect(self.onClickBtnSave)
 
     def setOpenDartObject(self, obj: OpenDart):
         for widget in self._doc_widget_list:
@@ -217,6 +233,18 @@ class DocumentViewerSubWindow(QMdiSubWindow):
             self._tabWidget.removeTab(index)
             widget.release()
 
+    def closeEvent(self, closeEvent: QCloseEvent) -> None:
+        pass
+
+    def onClickBtnSave(self):
+        try:
+            wgt = self._tabWidget.currentWidget()
+            if isinstance(wgt, DocumentViewerWidget):
+                doc_no = wgt.getDocumentNumber()
+                self._dart_obj.downloadDocumentRawFile(doc_no)
+        except Exception:
+            pass
+
 
 if __name__ == '__main__':
     from PyQt5.QtWidgets import QApplication
@@ -228,8 +256,8 @@ if __name__ == '__main__':
     app = QCoreApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
-    wgt_ = DocumentViewerWidget(dart)
-    wgt_.show()
-    wgt_.resize(600, 600)
+    subwnd_ = DocumentViewerSubWindow(dart)
+    subwnd_.show()
+    subwnd_.resize(600, 600)
 
     app.exec_()

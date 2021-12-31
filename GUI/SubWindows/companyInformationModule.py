@@ -3,9 +3,8 @@ import re
 import sys
 import pandas as pd
 from typing import Union
-from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QCloseEvent
-from PyQt5.QtWidgets import QWidget, QMdiSubWindow, QTableWidget, QLineEdit
+from PyQt5.QtWidgets import QWidget, QMdiSubWindow, QTableWidget, QLineEdit, QLabel
 from PyQt5.QtWidgets import QMessageBox
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QSizePolicy, QHeaderView
 CURPATH = os.path.dirname(os.path.abspath(__file__))
@@ -21,8 +20,6 @@ class CompanyInformationWidget(QWidget):
     _opendart: Union[OpenDart, None] = None
     _df_info: pd.DataFrame = pd.DataFrame()
 
-    sig_title = pyqtSignal(str)
-
     def __init__(self, dart_obj: OpenDart = None, parent=None):
         super().__init__(parent=parent)
         self._editCorpCode = QLineEdit()
@@ -36,7 +33,7 @@ class CompanyInformationWidget(QWidget):
 
     def initLayout(self):
         vbox = QVBoxLayout(self)
-        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setContentsMargins(0, 4, 0, 0)
         vbox.setSpacing(4)
 
         subwgt = QWidget()
@@ -44,6 +41,9 @@ class CompanyInformationWidget(QWidget):
         hbox = QHBoxLayout(subwgt)
         hbox.setContentsMargins(2, 0, 0, 0)
         hbox.setSpacing(4)
+        lbl = QLabel('고유번호/기업이름')
+        lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(lbl)
         hbox.addWidget(self._editCorpCode)
         vbox.addWidget(subwgt)
 
@@ -51,7 +51,8 @@ class CompanyInformationWidget(QWidget):
 
     def initControl(self):
         self._editCorpCode.returnPressed.connect(self.getInformation)
-        self._editCorpCode.setVisible(False)
+        self._editCorpCode.setPlaceholderText('Company Name / Company Unique Code (8 digit)')
+        # self._editCorpCode.setVisible(True)
         row_names = ['회사이름', '영문명', '공시회사명', '종목코드', '대표자명', '법인구분',
                      '법인등록번호', '사업자등록번호', '주소', '홈페이지', 'IR홈페이지',
                      '전화번호', '팩스번호', '업종명', '설립일', '결산월']
@@ -81,20 +82,22 @@ class CompanyInformationWidget(QWidget):
 
         if self._opendart is None:
             QMessageBox.warning(self, "Warning", "Open DART object is None!")
-            self.sig_title.emit('Null')
             return
 
-        text = self._editCorpCode.text()
+        text = self._editCorpCode.text().strip()
         regex = re.compile(r"^[0-9]{8}$")
         if regex.search(text) is not None:
             corp_code = text
         else:
-            QMessageBox.warning(self, "Warning", "Invalid Corporation Code")
-            self.sig_title.emit('Null')
-            return
+            df_corp_filter = self._opendart.searchCorporationCodeWithName(text, match_exact=True)
+            corp_code_list = list(df_corp_filter[df_corp_filter.columns[0]].values)
+            if len(corp_code_list) > 0:
+                corp_code = corp_code_list[0]
+            else:
+                QMessageBox.warning(self, "Warning", "Invalid Corporation Name or Code")
+                return
 
         self._df_info = self._opendart.getCompanyInformation(corp_code)
-        self.sig_title.emit(corp_code)
         self.drawTable()
 
     def drawTable(self):
@@ -201,9 +204,8 @@ class CompanyInformationSubWindow(QMdiSubWindow):
     def __init__(self, dart_obj: OpenDart = None, parent=None):
         super().__init__(parent=parent)
         self._widget = CompanyInformationWidget(dart_obj, self)
-        self._widget.sig_title.connect(self.setTitle)
         self.setWidget(self._widget)
-        self.setTitle('Null')
+        self.setWindowTitle('기업 개황 정보')
         self.setFixedHeight(400)
 
     def closeEvent(self, closeEvent: QCloseEvent) -> None:
@@ -214,9 +216,6 @@ class CompanyInformationSubWindow(QMdiSubWindow):
 
     def setCorporationCodeAndRefresh(self, corp_code: str):
         self._widget.setCorporationCodeAndRefresh(corp_code)
-
-    def setTitle(self, corp_code: str):
-        self.setWindowTitle(f'Company Information ({corp_code})')
 
     def setCorporationCodeEditVisible(self, visible: bool):
         self._widget.setCorporationCodeEditVisible(visible)

@@ -124,6 +124,7 @@ class ColumnNames:
         'rcept_no': '접수번호',
         'rcept_dt': '접수일자',
         'corp_code': '고유번호',
+        'corp_name': '회사명',
         'cmpny_nm': '회사명',
         'report_tp': '보고구분',
         'repror': '대표보고자',

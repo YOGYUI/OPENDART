@@ -282,7 +282,7 @@ class DailyDocumentSubWindow(QMdiSubWindow):
         self._widget.sig_corporation_code.connect(self.sig_corporation_code.emit)
         self._widget.sig_open_document.connect(self.sig_open_document.emit)
         self.setWidget(self._widget)
-        self.setWindowTitle('Daily Uploaded Document List')
+        self.setWindowTitle('일별 공시 문서 목록')
 
     def closeEvent(self, closeEvent: QCloseEvent) -> None:
         pass
