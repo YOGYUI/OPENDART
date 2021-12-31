@@ -22,6 +22,7 @@ from SubWindows import MajorReportSubWindow
 from SubWindows import FinanceInformationSubWindow
 from Misc import SetApiKeyDialog
 from Misc import MyMDIArea
+from Misc import DownloadFinancialStatementsRawFileWindow
 from Util.functions import *
 from uiCommon import makeQAction
 
@@ -30,8 +31,10 @@ class MainWindow(QMainWindow):
     _opendart: Union[OpenDart, None] = None
 
     _mdiArea: MyMDIArea
-    _subwnd_list: List[QMdiSubWindow]
+    _childwnd_list: List[QMainWindow]
+    _wnd_download_xbrl: DownloadFinancialStatementsRawFileWindow
 
+    _subwnd_list: List[QMdiSubWindow]
     _subwnd_company_info: CompanyInformationSubWindow
     _subwnd_daily_docs: DailyDocumentSubWindow
     _subwnd_search_doc: SearchDocumentSubWindow
@@ -44,23 +47,14 @@ class MainWindow(QMainWindow):
     _subwnd_document_viewer: DocumentViewerSubWindow
 
     _menu_visible_subwnd_list: List[Tuple[QAction, QMdiSubWindow]]
-    """
-    _menu_visible_subwnd_company_info: QAction
-    _menu_visible_subwnd_daily_docs: QAction
-    _menu_visible_subwnd_search_doc: QAction
-    _menu_visible_subwnd_corp_list: QAction
-    _menu_visible_subwnd_business_report: QAction
-    _menu_visible_subwnd_share_disclosure: QAction
-    _menu_visible_subwnd_registration_statement: QAction
-    _menu_visible_subwnd_major_report: QAction
-    _menu_visible_subwnd_financial_info: QAction
-    _menu_visible_subwnd_document_viewer: QAction
-    """
 
     def __init__(self, dart_obj: OpenDart = None, parent=None, init_width: int = 800, init_height: int = 800):
         super().__init__(parent=parent)
-
         self._mdiArea = MyMDIArea(self)
+
+        self._childwnd_list = list()
+        self._wnd_download_xbrl = DownloadFinancialStatementsRawFileWindow(dart_obj, self)
+
         self._subwnd_list = list()
         self._subwnd_company_info = CompanyInformationSubWindow(dart_obj, self)
         self._subwnd_daily_docs = DailyDocumentSubWindow(dart_obj, self)
@@ -88,11 +82,16 @@ class MainWindow(QMainWindow):
         for subwnd in self._subwnd_list:
             if callable(getattr(subwnd, 'release', None)):
                 subwnd.release()
+        for wnd in self._childwnd_list:
+            if callable(getattr(wnd, 'release', None)):
+                wnd.release()
 
     def initLayout(self):
         self.setCentralWidget(self._mdiArea)
 
     def initControl(self):
+        self._childwnd_list.append(self._wnd_download_xbrl)
+
         self._mdiArea.addSubWindow(self._subwnd_company_info)
         self._subwnd_list.append(self._subwnd_company_info)
 
@@ -148,6 +147,9 @@ class MainWindow(QMainWindow):
         menu_open_apikey_dlg = makeQAction(
             parent=self, text="OpenDART API Key 설정", triggered=self.openSetApiKeyDialog)
         menuFile.addAction(menu_open_apikey_dlg)
+        menu_download_xbrl = makeQAction(
+            parent=self, text=self._wnd_download_xbrl.windowTitle(), triggered=self.openDownXbrlWindow)
+        menuFile.addAction(menu_download_xbrl)
         menuFile.addSeparator()
         menu_close = makeQAction(parent=self, text="종료", triggered=self.close)
         menuFile.addAction(menu_close)
@@ -226,6 +228,11 @@ class MainWindow(QMainWindow):
         dlg.setCurrentKey(self._opendart.getApiKey())
         dlg.sig_set_key.connect(self.onApiKeyDialogSet)
         dlg.exec_()
+
+    def openDownXbrlWindow(self):
+        self._wnd_download_xbrl.showNormal()
+        self._wnd_download_xbrl.show()
+        self._wnd_download_xbrl.raise_()
 
     def onApiKeyDialogSet(self, key: str):
         try:
