@@ -54,7 +54,7 @@ class CommonReportWidget(QWidget):
         self.setOpenDartObject(dart_obj)
         self._editCompany = QLineEdit()
         self._cmbInfoType = QComboBox()
-        self._btnSearch = QPushButton('SEARCH')
+        self._btnSearch = QPushButton('검색')
         self._tableResult = QTableWidget()
         self.initControl()
         self.initLayout()
@@ -66,7 +66,7 @@ class CommonReportWidget(QWidget):
 
         vbox.addWidget(self._editCompany)
 
-        grbox = QGroupBox('Parameter')
+        grbox = QGroupBox('검색 조건')
         grbox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         vbox_gr = QVBoxLayout(grbox)
         vbox_gr.setContentsMargins(4, 6, 4, 4)
@@ -77,7 +77,7 @@ class CommonReportWidget(QWidget):
         hbox = QHBoxLayout(subwgt)
         hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(4)
-        lbl = QLabel('Type')
+        lbl = QLabel('유형')
         lbl.setFixedWidth(50)
         hbox.addWidget(lbl)
         hbox.addWidget(self._cmbInfoType)
@@ -101,7 +101,7 @@ class CommonReportWidget(QWidget):
         pass
 
     def initControl(self):
-        self._editCompany.setPlaceholderText('Company Name / Company Unique Code (8 digit)')
+        self._editCompany.setPlaceholderText('회사명 혹은 고유번호(8자리) 입력')
         self._editCompany.returnPressed.connect(self.search)
         self._cmbInfoType.addItems([x[0] for x in self._type_func_list])
         self._btnSearch.clicked.connect(self.search)
@@ -127,7 +127,7 @@ class CommonReportWidget(QWidget):
             return False
         text = self._editCompany.text()
         if len(text) == 0:
-            QMessageBox.warning(self, "Warning", "Invalid Corporation Name or Code")
+            QMessageBox.warning(self, "Warning", "부적절한 회사명 혹은 고유번호")
             return False
         return True
 

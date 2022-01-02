@@ -66,7 +66,7 @@ class MajorReportWidget(CommonReportWidget):
         hbox = QHBoxLayout(subwgt)
         hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(4)
-        lbl = QLabel('Date')
+        lbl = QLabel('일자')
         lbl.setFixedWidth(50)
         hbox.addWidget(lbl)
         self._dateEditBegin.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)

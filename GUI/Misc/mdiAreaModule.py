@@ -18,7 +18,9 @@ class MyMDIArea(QMdiArea):
         painter = QPainter(self.viewport())
         painter.fillRect(paintEvent.rect(), QBrush(Qt.white))
         painter.setPen(QColor(0, 0, 0))
-        painter.setFont(QFont('Decorative', 12))
+        font = painter.font()
+        font.setPointSize(12)
+        painter.setFont(font)
         painter.drawText(5, 5, self.width(), 350, Qt.AlignLeft, self._display_text)
 
         px1w, px1h = self._pixmap1.width(), self._pixmap1.height()

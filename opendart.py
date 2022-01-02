@@ -786,8 +786,8 @@ class OpenDart(OpenDartCore):
     def searchDocument(
             self, corpCode: str = None, dateEnd: Union[str, datetime.date] = datetime.datetime.now().date(),
             dateBegin: Union[str, datetime.date] = None, finalReport: bool = True, pageNumber: int = 1,
-            pageCount: int = 100, pbType: str = None, pbTypeDetail: str = None, corpClass: str = None,
-            recursive: bool = False
+            pageCount: int = 100, pbType: Union[str, None] = None, pbTypeDetail: Union[str, None] = None,
+            corpClass: Union[str, None] = None, recursive: bool = False
     ) -> pd.DataFrame:
         """
         https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001

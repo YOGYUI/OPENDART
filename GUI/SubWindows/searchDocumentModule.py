@@ -33,17 +33,19 @@ class SearchDocumentWidget(QWidget):
         self._table = QTableWidget()
         self._dateEditBegin = QDateEdit()
         self._dateEditEnd = QDateEdit()
-        self._btnDate1week = QPushButton('1W')
-        self._btnDate1month = QPushButton('1M')
-        self._btnDate6month = QPushButton('6M')
-        self._btnDate1year = QPushButton('1Y')
-        self._btnDate3year = QPushButton('3Y')
-        self._btnDate5year = QPushButton('5Y')
-        self._btnDate10year = QPushButton('10Y')
-        self._chkFinalReport = QCheckBox('Final Report')
+        self._btnDate1week = QPushButton('1주일')
+        self._btnDate1month = QPushButton('1개월')
+        self._btnDate6month = QPushButton('6개월')
+        self._btnDate1year = QPushButton('1년')
+        self._btnDate3year = QPushButton('3년')
+        self._btnDate5year = QPushButton('5년')
+        self._btnDate10year = QPushButton('10년')
+        self._chkFinalReport = QCheckBox('최종보고서')
         self._cmbCorpType = QComboBox()
-        self._btnSearch = QPushButton('SEARCH')
-        self._btnClear = QPushButton('CLEAR')
+        self._cmbPublishType = QComboBox()
+        self._cmbPublishDetail = QComboBox()
+        self._btnSearch = QPushButton('검색')
+        self._btnClear = QPushButton('초기화')
         self.initControl()
         self.initLayout()
         self.setOpenDartObject(dart_obj)
@@ -64,7 +66,7 @@ class SearchDocumentWidget(QWidget):
         hbox.addWidget(self._editCompany)
         vbox.addWidget(subwgt)
 
-        grbox = QGroupBox('Search Condition')
+        grbox = QGroupBox('검색 조건')
         vbox.addWidget(grbox)
         subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         vbox_gr = QVBoxLayout(grbox)
@@ -76,7 +78,7 @@ class SearchDocumentWidget(QWidget):
         hbox = QHBoxLayout(subwgt)
         hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(4)
-        lbl = QLabel('Duration')
+        lbl = QLabel('기간')
         lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(lbl)
         self._dateEditBegin.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
@@ -116,13 +118,31 @@ class SearchDocumentWidget(QWidget):
         hbox = QHBoxLayout(subwgt)
         hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(4)
-        lbl = QLabel('Corporation Classification')
+        lbl = QLabel('법인 유형')
         lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(lbl)
         self._cmbCorpType.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._cmbCorpType)
         self._chkFinalReport.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._chkFinalReport)
+        hbox.addWidget(QWidget())
+        vbox_gr.addWidget(subwgt)
+
+        subwgt = QWidget()
+        subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        hbox = QHBoxLayout(subwgt)
+        hbox.setContentsMargins(0, 0, 0, 0)
+        hbox.setSpacing(4)
+        lbl = QLabel('공시 유형')
+        lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(lbl)
+        self._cmbPublishType.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(self._cmbPublishType)
+        lbl = QLabel('상세')
+        lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(lbl)
+        # self._cmbPublishDetail.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(self._cmbPublishDetail)
         hbox.addWidget(QWidget())
         vbox_gr.addWidget(subwgt)
 
@@ -142,7 +162,7 @@ class SearchDocumentWidget(QWidget):
         vbox.addWidget(self._table)
 
     def initControl(self):
-        self._editCompany.setPlaceholderText('Company Name / Company Unique Code (8 digit)')
+        self._editCompany.setPlaceholderText('회사명 혹은 고유번호(8자리) 입력')
         self._editCompany.returnPressed.connect(self.search)
         self._dateEditEnd.setDisplayFormat("yyyy.MM.dd ")
         self._dateEditEnd.setCalendarPopup(True)
@@ -159,6 +179,12 @@ class SearchDocumentWidget(QWidget):
         self._chkFinalReport.setChecked(True)
         self._cmbCorpType.addItem('전체')
         self._cmbCorpType.addItems(Abbreviations.corp_cls.values())
+        self._cmbPublishType.addItems([
+            '전체', '정기공시', '주요사항보고', '발행공시', '지분공시', '기타공시',
+            '외부감사관련', '펀드공시', '자산유동화', '거래소공시', '공정위공시'
+        ])
+        self._cmbPublishType.currentIndexChanged.connect(self.onComboPublishTypeIndexChanged)
+        self._cmbPublishDetail.setEnabled(False)
 
         table_columns = ['공시대상회사', '보고서명', '제출인', '접수일자', '비고']
         self._table.setColumnCount(len(table_columns))
@@ -183,7 +209,7 @@ class SearchDocumentWidget(QWidget):
 
         text = self._editCompany.text()
         if len(text) == 0:
-            QMessageBox.warning(self, "Warning", "Invalid Corporation Name or Code")
+            QMessageBox.warning(self, "Warning", "부적절한 회사명 혹은 고유번호")
             return
 
         regex = re.compile(r"^[0-9]{8}$")
@@ -202,10 +228,27 @@ class SearchDocumentWidget(QWidget):
             corpClass = None
         else:
             corpClass = list(Abbreviations.corp_cls.keys())[idx - 1]
+        idx = self._cmbPublishType.currentIndex()
+        if idx == 0:
+            pbType = None
+            pbTypeDetail = None
+        else:
+            pbType = chr(idx - 1 + ord('A'))
+            idx2 = self._cmbPublishDetail.currentIndex()
+            if idx2 == 0:
+                pbTypeDetail = None
+            else:
+                pbTypeDetail = pbType + '{:03d}'.format(idx2)
+                pbType = None
 
         for code in corp_code:
             df_search = self._opendart.searchDocument(
-                corpCode=code, dateEnd=dateEnd, dateBegin=dateBegin, finalReport=finalrpt,
+                corpCode=code,
+                dateEnd=dateEnd,
+                dateBegin=dateBegin,
+                finalReport=finalrpt,
+                pbType=pbType,
+                pbTypeDetail=pbTypeDetail,
                 corpClass=corpClass
             )
             if df_result.empty:
@@ -225,7 +268,8 @@ class SearchDocumentWidget(QWidget):
         df_result_values = self._df_search_result.values
         self._table.setRowCount(rowcnt)
         if rowcnt == 0:
-            QMessageBox.warning(self, "Warning", "Empty Result!")
+            # QMessageBox.warning(self, "Warning", "Empty Result!")
+            return
 
         # corp_cls_text = {"Y": "유", "K": "코", "N": "넥", "E": "기"}
         for r in range(rowcnt):
@@ -292,6 +336,64 @@ class SearchDocumentWidget(QWidget):
 
     def setCorporationName(self, name: str):
         self._editCompany.setText(name)
+
+    def onComboPublishTypeIndexChanged(self, index: int):
+        self._cmbPublishDetail.clear()
+        if index == 0:
+            self._cmbPublishDetail.setEnabled(False)
+        else:
+            self._cmbPublishDetail.setEnabled(True)
+            if index == 1:  # A: 정기공시
+                self._cmbPublishDetail.addItems([
+                    '전체', '사업보고서', '반기보고서', '분기보고서',
+                    '등록법인결산서류(자본시장법 이전)', '소액공모법인결산서류'
+                ])
+            elif index == 2:  # B: 주요사항보고
+                self._cmbPublishDetail.addItems([
+                    '전체', '주요사항보고서', '주요경영사항신고(자본시장법 이전)',
+                    '최대주주등과의거래신고(자본시장법 이전)'
+                ])
+            elif index == 3:  # C: 발행공시
+                self._cmbPublishDetail.addItems([
+                    '전체', '증권신고(지분증권)', '증권신고(채무증권)', '증권신고(파생결합증권)', '증권신고(합병등)',
+                    '증권신고(기타)', '소액공모(지분증권)', '소액공모(채무증권)', '소액공모(파생결합증권)',
+                    '소액공모(합병등)', '소액공모(기타)', '호가중개시스템을통한소액매출'
+                ])
+            elif index == 4:  # D: 지분공시
+                self._cmbPublishDetail.addItems([
+                    '전체', '주식등의대량보유상황보고서', '임원ㆍ주요주주특정증권등소유상황보고서',
+                    '의결권대리행사권유', '공개매수'
+                ])
+            elif index == 5:  # E: 기타공시
+                self._cmbPublishDetail.addItems([
+                    '전체', '자기주식취득/처분"', '신탁계약체결/해지', '합병등종료보고서',
+                    '주식매수선택권부여에관한신고', '사외이사에관한신고', '주주총회소집공고', '시장조성/안정조작',
+                    '합병등신고서(자본시장법 이전)', '금융위등록/취소(자본시장법 이전)'
+                ])
+            elif index == 6:  # F: 외부감사관련
+                self._cmbPublishDetail.addItems([
+                    '전체', '감사보고서', '연결감사보고서', '결합감사보고서', '회계법인사업보고서',
+                    '감사전재무제표미제출신고서'
+                ])
+            elif index == 7:  # G: 펀드공시
+                self._cmbPublishDetail.addItems([
+                    '전체', '증권신고(집합투자증권-신탁형)', '증권신고(집합투자증권-회사형)',
+                    '증권신고(집합투자증권-합병)'
+                ])
+            elif index == 8:  # H: 자산유동화
+                self._cmbPublishDetail.addItems([
+                    '전체', '자산유동화계획/양도등록', '사업/반기/분기보고서', '증권신고(유동화증권등)',
+                    '채권유동화계획/양도등록', '자산유동화관련중요사항발생등신고', '주요사항보고서'
+                ])
+            elif index == 9:  # I: 거래소공시
+                self._cmbPublishDetail.addItems([
+                    '전체', '수시공시', '공정공시', '시장조치/안내', '지분공시', '증권투자회사', '채권공시'
+                ])
+            elif index == 10:  # J: 공정위공시
+                self._cmbPublishDetail.addItems([
+                    '전체', '대규모내부거래관련', '대규모내부거래관련(구)', '기업집단현황공시',
+                    '비상장회사중요사항공시', '기타공정위공시'
+                ])
 
 
 class SearchDocumentSubWindow(QMdiSubWindow):

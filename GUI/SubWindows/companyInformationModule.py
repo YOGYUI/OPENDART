@@ -51,7 +51,7 @@ class CompanyInformationWidget(QWidget):
 
     def initControl(self):
         self._editCorpCode.returnPressed.connect(self.getInformation)
-        self._editCorpCode.setPlaceholderText('Company Name / Company Unique Code (8 digit)')
+        self._editCorpCode.setPlaceholderText('회사명 혹은 고유번호(8자리) 입력')
         # self._editCorpCode.setVisible(True)
         row_names = ['회사이름', '영문명', '공시회사명', '종목코드', '대표자명', '법인구분',
                      '법인등록번호', '사업자등록번호', '주소', '홈페이지', 'IR홈페이지',
@@ -94,7 +94,7 @@ class CompanyInformationWidget(QWidget):
             if len(corp_code_list) > 0:
                 corp_code = corp_code_list[0]
             else:
-                QMessageBox.warning(self, "Warning", "Invalid Corporation Name or Code")
+                QMessageBox.warning(self, "Warning", "부적절한 회사명 혹은 고유번호")
                 return
 
         self._df_info = self._opendart.getCompanyInformation(corp_code)
