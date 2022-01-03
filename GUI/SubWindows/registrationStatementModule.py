@@ -8,10 +8,11 @@ from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import QWidget, QComboBox, QLabel, QDateEdit
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QSizePolicy
 CURPATH = os.path.dirname(os.path.abspath(__file__))
-PROJPATH = os.path.dirname(CURPATH)
-sys.path.extend([CURPATH, PROJPATH])
+GUIPATH = os.path.dirname(CURPATH)
+PROJPATH = os.path.dirname(GUIPATH)
+sys.path.extend([CURPATH, GUIPATH, PROJPATH])
 sys.path = list(set(sys.path))
-del CURPATH, PROJPATH
+del CURPATH, GUIPATH, PROJPATH
 from opendart import OpenDart
 from uiCommon import CommonReportWidget, CommonReportSubWindow
 

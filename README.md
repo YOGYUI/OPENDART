@@ -1,25 +1,58 @@
 # OPENDART-Python
 ![opendart](./Resource/opendart_logo.png)<br>
-금융감독원 전자공시시스템(DART) 오픈API 서비스 인터페이스 ([OPENDART](http://opendart.fss.or.kr))
+Interface for Open-API service which is provided by DART(Data Analysis, Retrieval and Transfer) system of Financial Supervisory Service(FSS) (Republic of Korea) 
+([OPENDART](http://opendart.fss.or.kr))
 
 Language
 --
-Python (tested in version 3.8)
+Python (Developed and test with version 3.8.5)
 
-Requirements
+Package Requirements
 --
 ```
-lxml
-PyQt5
-pandas
-pymysql
-requests
-requests-HTML
-PyQtWebEngine
+lxml>=4.6.0
+PyQt5>=5.15.0
+pandas>=1.3.0
+pymysql>=1.0.0
+requests>=2.26.0
+requests-HTML>=0.10.0
+PyQtWebEngine<=5.15.3
+python-dateutil>=2.8.0
 ```
 
 Manual
 --
+Basic use example
+```python
+from opendart import *
+import pandas as pd
+
+dart_api_key = "Your api key from open-dart"
+dart = OpenDart()
+dart.setApiKey(dart_api_key)
+df_comp_info: pd.DataFrame = dart.getCompanyInformation('00126380')  # 삼성전자 기업개황
+```
+You can get OPENDART API key from [OPENDART](http://opendart.fss.or.kr) web page.<br>
+Detailed descriptions of all methods are written in source code([opendart.py](https://github.com/YOGYUI/OPENDART/tree/main/opendart.py)) as comments.
+
+### Graphical User Interface (GUI)
+Developed GUI using PyQt5 (Multi Docement Interface).<br>
+Various OPENDART API can be accessed by user-friendly sub windows.
+<br>
+####Basic use example
+```python
+from opendart import *
+from GUI import *
+from PyQt5.QtWidgets import *
+
+app = QApplication(sys.argv)
+dart = OpenDart()
+wnd = MainWindow(dart)
+wnd.show()
+app.exec_()
+```
+#### Screenshot
+
 
 Notice
 --

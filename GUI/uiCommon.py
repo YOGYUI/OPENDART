@@ -2,12 +2,13 @@ import os
 import re
 import sys
 import pandas as pd
+from collections import OrderedDict
 from typing import Union, List, Tuple
 from abc import abstractmethod
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QIcon, QCloseEvent
 from PyQt5.QtWidgets import QWidget, QMdiSubWindow, QTableWidget, QTableWidgetItem, QAction
-from PyQt5.QtWidgets import QPushButton, QLineEdit, QComboBox, QMessageBox, QLabel
+from PyQt5.QtWidgets import QPushButton, QLineEdit, QComboBox, QMessageBox, QLabel, QFileDialog
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QGroupBox, QSizePolicy, QAbstractItemView
 CURPATH = os.path.dirname(os.path.abspath(__file__))
 PROJPATH = os.path.dirname(CURPATH)
@@ -42,6 +43,22 @@ def makeQAction(**kwargs):
     return action
 
 
+def getDataFrameFromTableWidget(table: QTableWidget) -> pd.DataFrame:
+    try:
+        hlabels = [table.horizontalHeaderItem(x).text() for x in range(table.columnCount())]
+        record_list = list()
+        for row in range(table.rowCount()):
+            record = OrderedDict()
+            for col in range(table.columnCount()):
+                record[hlabels[col]] = table.item(row, col).text()
+            record_list.append(record)
+        df = pd.DataFrame(record_list)
+        df.columns = hlabels
+    except Exception:
+        df = pd.DataFrame()
+    return df
+
+
 class CommonReportWidget(QWidget):
     _opendart: Union[OpenDart, None] = None
     _type_func_list: List[Tuple[str, str]]
@@ -55,6 +72,8 @@ class CommonReportWidget(QWidget):
         self._editCompany = QLineEdit()
         self._cmbInfoType = QComboBox()
         self._btnSearch = QPushButton('검색')
+        self._btnSaveCsv = QPushButton('저장 (CSV)')
+        self._btnClear = QPushButton('초기화')
         self._tableResult = QTableWidget()
         self.initControl()
         self.initLayout()
@@ -85,31 +104,45 @@ class CommonReportWidget(QWidget):
         self.initParameterLayout(vbox_gr)
         vbox.addWidget(grbox)
 
+        self.initButtonLayout(vbox)
+        vbox.addWidget(self._tableResult)
+
+    def initParameterLayout(self, vbox_gr: QVBoxLayout):
+        pass
+
+    def initButtonLayout(self, vbox: QVBoxLayout):
         subwgt = QWidget()
         subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         hbox = QHBoxLayout(subwgt)
         hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(4)
+        hbox.addWidget(QWidget())
         self._btnSearch.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._btnSearch)
+        self._btnSaveCsv.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(self._btnSaveCsv)
+        self._btnClear.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(self._btnClear)
+        hbox.addWidget(QWidget())
         vbox.addWidget(subwgt)
-
-        vbox.addWidget(self._tableResult)
-
-    @abstractmethod
-    def initParameterLayout(self, vbox_gr: QVBoxLayout):
-        pass
 
     def initControl(self):
         self._editCompany.setPlaceholderText('회사명 혹은 고유번호(8자리) 입력')
         self._editCompany.returnPressed.connect(self.search)
         self._cmbInfoType.addItems([x[0] for x in self._type_func_list])
         self._btnSearch.clicked.connect(self.search)
+        self._btnSearch.setIcon(QIcon('./Resource/find.png'))
+        self._btnSaveCsv.clicked.connect(self.saveCsvFile)
+        self._btnSaveCsv.setIcon(QIcon('./Resource/excel.png'))
+        self._btnClear.clicked.connect(self.clear)
+        self._btnClear.setIcon(QIcon('./Resource/clear.png'))
 
         self._tableResult.verticalHeader().hide()
         self._tableResult.setAlternatingRowColors(True)
         self._tableResult.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._tableResult.itemDoubleClicked.connect(self.onTableResultItemDoubleClicked)
+        styleSheet = "QTableWidget {alternate-background-color: #eeeeee; background-color: white;}"
+        self._tableResult.setStyleSheet(styleSheet)
 
     def setOpenDartObject(self, obj: OpenDart):
         self._opendart = obj
@@ -117,9 +150,30 @@ class CommonReportWidget(QWidget):
     def setCorporationCode(self, corp_code: str):
         self._editCompany.setText(corp_code)
 
+    def setCorporationName(self, name: str):
+        self._editCompany.setText(name)
+
     @abstractmethod
     def search(self):
         pass
+
+    def clear(self):
+        self._editCompany.setText('')
+        self._tableResult.clearContents()
+        self._tableResult.clear()
+        self._tableResult.setRowCount(0)
+        self._tableResult.setColumnCount(0)
+
+    def saveCsvFile(self):
+        df = getDataFrameFromTableWidget(self._tableResult)
+        if not df.empty:
+            options = QFileDialog.Options()
+            path, _ = QFileDialog.getSaveFileName(self, 'Select File', 'result',
+                                                  'Csv Format (*.csv)', options=options)
+            if path:
+                df.to_csv(path, index=False)
+        else:
+            QMessageBox.warning(self, 'Warning', '파일 저장 불가 - 빈 테이블')
 
     def checkValidity(self) -> bool:
         if self._opendart is None:
@@ -190,3 +244,6 @@ class CommonReportSubWindow(QMdiSubWindow):
 
     def setCorporationCode(self, corp_code: str):
         self._widget.setCorporationCode(corp_code)
+
+    def setCorporationName(self, name: str):
+        self._widget.setCorporationName(name)

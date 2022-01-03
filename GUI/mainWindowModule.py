@@ -1,5 +1,6 @@
 import os
 import sys
+import subprocess
 from functools import partial
 from typing import Union, List, Tuple
 from PyQt5.QtGui import QShowEvent, QCloseEvent
@@ -102,7 +103,6 @@ class MainWindow(QMainWindow):
 
         self._mdiArea.addSubWindow(self._subwnd_search_doc)
         self._subwnd_search_doc.sig_open_document.connect(self.openDocument)
-        self._subwnd_search_doc.sig_corporation_code.connect(self.loadCompanyInformation)
         self._subwnd_list.append(self._subwnd_search_doc)
 
         self._mdiArea.addSubWindow(self._subwnd_corp_list)
@@ -145,13 +145,19 @@ class MainWindow(QMainWindow):
         menuFile = QMenu('&File', menubar)
         menubar.addAction(menuFile.menuAction())
         menu_open_apikey_dlg = makeQAction(
-            parent=self, text="OpenDART API Key 설정", triggered=self.openSetApiKeyDialog)
+            parent=self, text="OpenDART API Key 설정", triggered=self.openSetApiKeyDialog,
+            iconPath='./Resource/key.png')
         menuFile.addAction(menu_open_apikey_dlg)
         menu_download_xbrl = makeQAction(
             parent=self, text=self._wnd_download_xbrl.windowTitle(), triggered=self.openDownXbrlWindow)
         menuFile.addAction(menu_download_xbrl)
         menuFile.addSeparator()
-        menu_close = makeQAction(parent=self, text="종료", triggered=self.close)
+        menu_open_data_path = makeQAction(
+            parent=self, text='데이터 저장 폴더 열기', triggered=self.openDataStoragePath,
+            iconPath='./Resource/check_db.png')
+        menuFile.addAction(menu_open_data_path)
+        menuFile.addSeparator()
+        menu_close = makeQAction(parent=self, text="종료", triggered=self.close, iconPath='./Resource/close.png')
         menuFile.addAction(menu_close)
 
         menuView = QMenu('&View', menubar)
@@ -185,6 +191,8 @@ class MainWindow(QMainWindow):
     def openDocument(self, document_no: str):
         self._subwnd_document_viewer.showNormal()
         self._subwnd_document_viewer.show()
+        self._subwnd_document_viewer.raise_()
+        self._subwnd_document_viewer.setFocus()
         self._subwnd_document_viewer.setDocumentNumber(document_no)
 
     def loadCompanyInformation(self, corp_code: str):
@@ -239,6 +247,15 @@ class MainWindow(QMainWindow):
             self._opendart.setApiKey(key)
         except Exception as e:
             QMessageBox.warning(self, 'Exception', str(e))
+
+    def openDataStoragePath(self):
+        if self._opendart is not None:
+            path_dest = self._opendart.getDataStoragePath()
+            if sys.platform == 'win32':
+                os.startfile(path_dest)
+            else:
+                opener = "open" if sys.platform == "darwin" else "xdg-open"
+                subprocess.call([opener, path_dest])
 
 
 if __name__ == '__main__':

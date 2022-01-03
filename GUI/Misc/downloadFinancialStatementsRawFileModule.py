@@ -2,13 +2,15 @@
 import os
 import sys
 from typing import Union
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QMainWindow, QWidget, QLineEdit, QRadioButton, QPushButton, QLabel, QCheckBox, QFileDialog
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QSizePolicy
 CURPATH = os.path.dirname(os.path.abspath(__file__))
-PROJPATH = os.path.dirname(CURPATH)
-sys.path.extend([CURPATH, PROJPATH])
+GUIPATH = os.path.dirname(CURPATH)
+PROJPATH = os.path.dirname(GUIPATH)
+sys.path.extend([CURPATH, GUIPATH, PROJPATH])
 sys.path = list(set(sys.path))
-del CURPATH, PROJPATH
+del CURPATH, GUIPATH, PROJPATH
 from opendart import OpenDart, ReportCode
 
 
@@ -86,6 +88,7 @@ class DownloadFinancialStatementsRawFileWindow(QMainWindow):
         self._radioRptCode4.setToolTip('11011')
         self._radioRptCode4.setChecked(True)
         self._btnDownload.clicked.connect(self.download)
+        self._btnDownload.setIcon(QIcon('./Resource/download.png'))
         self._checkOpenFolder.setChecked(True)
 
     def release(self):

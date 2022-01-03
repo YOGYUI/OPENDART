@@ -186,6 +186,10 @@ class OpenDartCore:
         self._rename_dataframe_column_names = enable
 
     def setApiKey(self, key: str):
+        """
+
+        :param key:
+        """
         self._config.api_key = key
         self._log(f"set api key: {self._config.api_key}", LogType.Command)
         self._config.saveToLocalFile()
@@ -652,6 +656,9 @@ class OpenDartCore:
     def recoverDataStoragePath(self):
         self._path_data_dir = self._path_data_dir_origin
 
+    def getDataStoragePath(self) -> str:
+        return self._path_data_dir
+
     @abstractmethod
     def loadCorporationDataFrame(self, reload: bool = False) -> pd.DataFrame:
         self._df_corplist = pd.DataFrame()
@@ -970,6 +977,16 @@ class OpenDart(OpenDartCore):
     def downloadDocumentAsHtmlFile(
             self, document_no: str, reload: bool = False, openFile: bool = False
     ) -> str:
+        """
+        공시문서 원본을 HTML 파일로 로컬에 저장 (dcmNo 파라미터를 동적으로 획득)
+        파일명 = {공시문서번호}.html
+        주의: chromium 브라우저가 페이지를 렌더링하므로 페이지에 따라 로딩 시간이 수 초 이상 소요될 수 있음
+
+        :param document_no: 공시문서번호
+        :param reload: True = 로컬에 파일이 존재할 경우 삭제하고 새로 렌더링 후 저장
+        :param openFile: True = 파일이 저장된 디렉터리를 탐색기로 열기
+        :return: 저장된 HTML 파일 경로
+        """
         if reload:
             self._removeDocumentHtmlFileInLocal(document_no)
         if not self._isDocumentHtmlFileExistInLocal(document_no):
@@ -1011,6 +1028,13 @@ class OpenDart(OpenDartCore):
     def loadDocumentHtmlFileAsElementTree(
             self, document_no: str, reload: bool = False
     ) -> etree.ElementTree:
+        """
+        공시문서 원본을 ElementTree 객체로 변환하여 반환 (동적으로 HTML 내부 객체들에 접근하고자 할 경우 사용)
+
+        :param document_no: 공시문서번호
+        :param reload: True = 로컬에 파일이 존재할 경우 삭제하고 새로 렌더링 후 저장
+        :return: ElementTree 객체
+        """
         path_file = self.downloadDocumentAsHtmlFile(document_no, reload)
         if os.path.isfile(path_file):
             tree = html.parse(path_file)
@@ -1022,6 +1046,13 @@ class OpenDart(OpenDartCore):
     def readDocumentHtmlFileAsText(
             self, document_no: str, reload: bool = False
     ) -> str:
+        """
+        공시문서 원본을 문자열로 변환하여 반환 (print 등의 기능을 수행하고자 할 때 사용)
+
+        :param document_no: 공시문서번호
+        :param reload: True = 로컬에 파일이 존재할 경우 삭제하고 새로 렌더링 후 저장
+        :return: HTML 문자열
+        """
         tree = self.loadDocumentHtmlFileAsElementTree(document_no, reload)
         encoding = tree.docinfo.encoding
         raw = html.tostring(tree, encoding=encoding)

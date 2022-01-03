@@ -3,15 +3,17 @@ import sys
 import pandas as pd
 from typing import Union
 from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QIcon
 from PyQt5.QtGui import QShowEvent, QCloseEvent, QResizeEvent, QWheelEvent, QKeyEvent
 from PyQt5.QtWidgets import QWidget, QMessageBox, QTableWidget, QTableWidgetItem, QScrollBar, QLineEdit, QPushButton
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QHeaderView, QAbstractItemView, QSizePolicy, QCheckBox
-from PyQt5.QtWidgets import QMdiSubWindow, QApplication
+from PyQt5.QtWidgets import QMdiSubWindow, QApplication, QFileDialog
 CURPATH = os.path.dirname(os.path.abspath(__file__))
-PROJPATH = os.path.dirname(CURPATH)
-sys.path.extend([CURPATH, PROJPATH])
+GUIPATH = os.path.dirname(CURPATH)
+PROJPATH = os.path.dirname(GUIPATH)
+sys.path.extend([CURPATH, GUIPATH, PROJPATH])
 sys.path = list(set(sys.path))
-del CURPATH, PROJPATH
+del CURPATH, GUIPATH, PROJPATH
 from opendart import OpenDart
 from uiCommon import ReadOnlyTableItem
 
@@ -31,6 +33,7 @@ class CorporationListWidget(QWidget):
         super().__init__(parent=parent)
         self._editSearch = QLineEdit()
         self._btnSearch = QPushButton('검색')
+        self._btnSaveCsv = QPushButton('저장 (CSV)')
         self._table = QTableWidget()
         self._tableItemHeight = 30
         self._scrollVertical = QScrollBar()
@@ -56,6 +59,8 @@ class CorporationListWidget(QWidget):
         hbox.addWidget(self._editSearch)
         self._btnSearch.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._btnSearch)
+        self._btnSaveCsv.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(self._btnSaveCsv)
         self._checkExactMatch.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._checkExactMatch)
         vbox.addWidget(subwgt)
@@ -105,6 +110,9 @@ class CorporationListWidget(QWidget):
         self._editSearch.setPlaceholderText('Search Keyword: Corporation Name')
         self._editSearch.returnPressed.connect(self.search)
         self._btnSearch.clicked.connect(self.search)
+        self._btnSearch.setIcon(QIcon('./Resource/find.png'))
+        self._btnSaveCsv.clicked.connect(self.saveCsvFile)
+        self._btnSaveCsv.setIcon(QIcon('./Resource/excel.png'))
 
         self._checkPublicMarketOnly.clicked.connect(self.onClickCheckMarketOnly)
         self._checkExactMatch.clicked.connect(self.onClickCheckExactMatch)
@@ -162,6 +170,16 @@ class CorporationListWidget(QWidget):
             self.setVerticalOffset(index)
         else:
             QMessageBox.warning(self, "Warning", "Empty Result!")
+
+    def saveCsvFile(self):
+        if not self._df_corp_list.empty:
+            options = QFileDialog.Options()
+            path, _ = QFileDialog.getSaveFileName(self, 'Select File', 'result',
+                                                  'Csv Format (*.csv)', options=options)
+            if path:
+                self._df_corp_list.to_csv(path, index=False)
+        else:
+            QMessageBox.warning(self, 'Warning', '파일 저장 불가 - 빈 테이블')
 
     def resizeEvent(self, a0: QResizeEvent) -> None:
         self.setTableItemLayout()

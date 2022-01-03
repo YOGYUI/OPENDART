@@ -5,32 +5,25 @@ import pandas as pd
 from typing import Union
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
-from PyQt5.QtCore import Qt, QDate, pyqtSignal
-from PyQt5.QtGui import QCloseEvent
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QMessageBox
-from PyQt5.QtWidgets import QLineEdit, QPushButton, QCheckBox, QDateEdit, QLabel, QComboBox
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QGroupBox, QSizePolicy, QHeaderView, QAbstractItemView
-from PyQt5.QtWidgets import QMdiSubWindow
+from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtWidgets import QWidget, QTableWidgetItem, QMessageBox
+from PyQt5.QtWidgets import QPushButton, QCheckBox, QDateEdit, QLabel, QComboBox
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QGroupBox, QSizePolicy, QHeaderView, QFileDialog
 CURPATH = os.path.dirname(os.path.abspath(__file__))
-PROJPATH = os.path.dirname(CURPATH)
-sys.path.extend([CURPATH, PROJPATH])
+GUIPATH = os.path.dirname(CURPATH)
+PROJPATH = os.path.dirname(GUIPATH)
+sys.path.extend([CURPATH, GUIPATH, PROJPATH])
 sys.path = list(set(sys.path))
-del CURPATH, PROJPATH
+del CURPATH, GUIPATH, PROJPATH
 from opendart import OpenDart, Abbreviations
-from uiCommon import ReadOnlyTableItem
+from uiCommon import CommonReportWidget, CommonReportSubWindow, ReadOnlyTableItem
 
 
-class SearchDocumentWidget(QWidget):
-    _opendart: Union[OpenDart, None] = None
+class SearchDocumentWidget(CommonReportWidget):
     _df_search_result: pd.DataFrame = pd.DataFrame()
 
-    sig_corporation_code = pyqtSignal(str)
-    sig_open_document = pyqtSignal(str)
-
     def __init__(self, dart_obj: OpenDart = None, parent=None):
-        super().__init__(parent=parent)
-        self._editCompany = QLineEdit()
-        self._table = QTableWidget()
+        self._type_func_list = []
         self._dateEditBegin = QDateEdit()
         self._dateEditEnd = QDateEdit()
         self._btnDate1week = QPushButton('1주일')
@@ -44,14 +37,7 @@ class SearchDocumentWidget(QWidget):
         self._cmbCorpType = QComboBox()
         self._cmbPublishType = QComboBox()
         self._cmbPublishDetail = QComboBox()
-        self._btnSearch = QPushButton('검색')
-        self._btnClear = QPushButton('초기화')
-        self.initControl()
-        self.initLayout()
-        self.setOpenDartObject(dart_obj)
-
-    def setOpenDartObject(self, obj: OpenDart):
-        self._opendart = obj
+        super().__init__(dart_obj=dart_obj, parent=parent)
 
     def initLayout(self):
         vbox = QVBoxLayout(self)
@@ -146,24 +132,11 @@ class SearchDocumentWidget(QWidget):
         hbox.addWidget(QWidget())
         vbox_gr.addWidget(subwgt)
 
-        subwgt = QWidget()
-        subwgt.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
-        hbox = QHBoxLayout(subwgt)
-        hbox.setContentsMargins(0, 0, 0, 0)
-        hbox.setSpacing(4)
-        hbox.addWidget(QWidget())
-        self._btnSearch.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
-        hbox.addWidget(self._btnSearch)
-        self._btnClear.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
-        hbox.addWidget(self._btnClear)
-        hbox.addWidget(QWidget())
-        vbox.addWidget(subwgt)
-
-        vbox.addWidget(self._table)
+        self.initButtonLayout(vbox)
+        vbox.addWidget(self._tableResult)
 
     def initControl(self):
-        self._editCompany.setPlaceholderText('회사명 혹은 고유번호(8자리) 입력')
-        self._editCompany.returnPressed.connect(self.search)
+        super().initControl()
         self._dateEditEnd.setDisplayFormat("yyyy.MM.dd ")
         self._dateEditEnd.setCalendarPopup(True)
         self._dateEditBegin.setDisplayFormat("yyyy.MM.dd ")
@@ -187,22 +160,15 @@ class SearchDocumentWidget(QWidget):
         self._cmbPublishDetail.setEnabled(False)
 
         table_columns = ['공시대상회사', '보고서명', '제출인', '접수일자', '비고']
-        self._table.setColumnCount(len(table_columns))
-        self._table.setHorizontalHeaderLabels(table_columns)
+        self._tableResult.verticalHeader().show()
+        self._tableResult.setColumnCount(len(table_columns))
+        self._tableResult.setHorizontalHeaderLabels(table_columns)
         for i in [3, 4]:
-            self._table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self._table.itemDoubleClicked.connect(self.onTableSearchResultItemDoubleClicked)
-        self._table.setAlternatingRowColors(True)
-        styleSheet = "QTableWidget {alternate-background-color: #eeeeee; background-color: white;}"
-        self._table.setStyleSheet(styleSheet)
-
-        self._btnSearch.clicked.connect(self.search)
-        self._btnClear.clicked.connect(self.clear)
+            self._tableResult.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        self._tableResult.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
 
     def search(self):
-        self._table.clearContents()
+        self._tableResult.clearContents()
         if self._opendart is None:
             QMessageBox.warning(self, "Warning", "Open DART object is None!")
             return
@@ -257,16 +223,27 @@ class SearchDocumentWidget(QWidget):
             df_result = df_result.append(df_search, ignore_index=True)
 
         self._df_search_result = df_result
-        self.drawTable()
+        self.drawTable(self._df_search_result)
 
     def clear(self):
         self._editCompany.setText('')
-        self._table.setRowCount(0)
+        self._tableResult.clearContents()
+        self._tableResult.setRowCount(0)
 
-    def drawTable(self):
-        rowcnt = len(self._df_search_result)
-        df_result_values = self._df_search_result.values
-        self._table.setRowCount(rowcnt)
+    def saveCsvFile(self):
+        if not self._df_search_result.empty:
+            options = QFileDialog.Options()
+            path, _ = QFileDialog.getSaveFileName(self, 'Select File', 'result',
+                                                  'Csv Format (*.csv)', options=options)
+            if path:
+                self._df_search_result.to_csv(path, index=False)
+        else:
+            QMessageBox.warning(self, 'Warning', '파일 저장 불가 - 빈 테이블')
+
+    def drawTable(self, df: pd.DataFrame):
+        rowcnt = len(df)
+        df_result_values = df.values
+        self._tableResult.setRowCount(rowcnt)
         if rowcnt == 0:
             # QMessageBox.warning(self, "Warning", "Empty Result!")
             return
@@ -280,28 +257,28 @@ class SearchDocumentWidget(QWidget):
             corp_name = df_result_values[r][1]
             item = ReadOnlyTableItem(corp_name)
             item.setToolTip(corp_name)
-            self._table.setItem(r, col, item)
+            self._tableResult.setItem(r, col, item)
             col += 1
             # 보고서명
             rpt_title = df_result_values[r][4]
             item = ReadOnlyTableItem(rpt_title)
             item.setToolTip(rpt_title)
-            self._table.setItem(r, col, item)
+            self._tableResult.setItem(r, col, item)
             col += 1
             # 접수번호
             # item = ReadOnlyTableItem(df_result_values[r][5])
-            # self._table.setItem(r, col, item)
+            # self._tableResult.setItem(r, col, item)
             # col += 1
             # 제출인
             rpt_name = df_result_values[r][6]
             item = ReadOnlyTableItem(rpt_name)
-            self._table.setItem(r, col, item)
+            self._tableResult.setItem(r, col, item)
             col += 1
             # 접수일자
             strdate = df_result_values[r][7]
             strdate = strdate[:4] + '.' + strdate[4:6] + '.' + strdate[6:]
             item = ReadOnlyTableItem(strdate)
-            self._table.setItem(r, col, item)
+            self._tableResult.setItem(r, col, item)
             col += 1
             # 비고
             etc = df_result_values[r][8]
@@ -316,7 +293,7 @@ class SearchDocumentWidget(QWidget):
                     pass
             if len(msg) > 0:
                 item.setToolTip(msg[:-1])
-            self._table.setItem(r, col, item)
+            self._tableResult.setItem(r, col, item)
             col += 1
 
     def onClickBtnDateRange(self, td: Union[timedelta, relativedelta]):
@@ -325,17 +302,13 @@ class SearchDocumentWidget(QWidget):
         date_begin = (date_end - td)
         self._dateEditBegin.setDate(QDate(date_begin.year, date_begin.month, date_begin.day))
 
-    def onTableSearchResultItemDoubleClicked(self, item: QTableWidgetItem):
+    def onTableResultItemDoubleClicked(self, item: QTableWidgetItem):
         row = item.row()
         record = self._df_search_result.iloc[row]
         columns = self._df_search_result.columns
-        corp_code = record[columns[0]]
+        # corp_code = record[columns[0]]
         documnet_no = record[columns[5]]
-        self.sig_corporation_code.emit(corp_code)
         self.sig_open_document.emit(documnet_no)
-
-    def setCorporationName(self, name: str):
-        self._editCompany.setText(name)
 
     def onComboPublishTypeIndexChanged(self, index: int):
         self._cmbPublishDetail.clear()
@@ -396,28 +369,15 @@ class SearchDocumentWidget(QWidget):
                 ])
 
 
-class SearchDocumentSubWindow(QMdiSubWindow):
+class SearchDocumentSubWindow(CommonReportSubWindow):
     _widget: SearchDocumentWidget
 
-    sig_corporation_code = pyqtSignal(str)
-    sig_open_document = pyqtSignal(str)
-
     def __init__(self, dart_obj: OpenDart = None, parent=None):
-        super().__init__(parent=parent)
-        self._widget = SearchDocumentWidget(dart_obj, self)
-        self._widget.sig_corporation_code.connect(self.sig_corporation_code.emit)
-        self._widget.sig_open_document.connect(self.sig_open_document.emit)
-        self.setWidget(self._widget)
+        super().__init__(dart_obj=dart_obj, parent=parent)
         self.setWindowTitle('공시 검색')
 
-    def closeEvent(self, closeEvent: QCloseEvent) -> None:
-        pass
-
-    def setOpenDartObject(self, obj: OpenDart):
-        self._widget.setOpenDartObject(obj)
-
-    def setCorporationName(self, name: str):
-        self._widget.setCorporationName(name)
+    def initWidget(self, dart_obj: OpenDart = None):
+        self._widget = SearchDocumentWidget(dart_obj, self)
 
 
 if __name__ == '__main__':

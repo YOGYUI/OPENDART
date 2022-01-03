@@ -4,18 +4,19 @@ import pandas as pd
 from typing import Union
 from datetime import datetime
 from PyQt5.QtCore import Qt, pyqtSignal, QDate
-from PyQt5.QtGui import QCloseEvent
+from PyQt5.QtGui import QCloseEvent, QIcon
 from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QDateEdit, QPushButton, QLabel, QRadioButton
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QSizePolicy, QMessageBox, QButtonGroup, QGroupBox
 from PyQt5.QtWidgets import QHeaderView, QAbstractItemView
-from PyQt5.QtWidgets import QMdiSubWindow
+from PyQt5.QtWidgets import QMdiSubWindow, QFileDialog
 CURPATH = os.path.dirname(os.path.abspath(__file__))
-PROJPATH = os.path.dirname(CURPATH)
-sys.path.extend([CURPATH, PROJPATH])
+GUIPATH = os.path.dirname(CURPATH)
+PROJPATH = os.path.dirname(GUIPATH)
+sys.path.extend([CURPATH, GUIPATH, PROJPATH])
 sys.path = list(set(sys.path))
-del CURPATH, PROJPATH
+del CURPATH, GUIPATH, PROJPATH
 from opendart import OpenDart, Abbreviations
-from uiCommon import ReadOnlyTableItem
+from uiCommon import ReadOnlyTableItem, getDataFrameFromTableWidget
 
 
 class DailyDocumentWidget(QWidget):
@@ -29,6 +30,7 @@ class DailyDocumentWidget(QWidget):
         super().__init__(parent=parent)
         self._dateEditSearch = QDateEdit()
         self._btnRefresh = QPushButton('검색')
+        self._btnSaveCsv = QPushButton('저장 (CSV)')
         self._lblResult = QLabel()
         self._radioClassY = QRadioButton('유가증권')
         self._radioClassK = QRadioButton('코스닥')
@@ -65,6 +67,8 @@ class DailyDocumentWidget(QWidget):
         hbox.addWidget(self._dateEditSearch)
         self._btnRefresh.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
         hbox.addWidget(self._btnRefresh)
+        self._btnSaveCsv.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(self._btnSaveCsv)
         hbox.addWidget(self._lblResult)
         vbox.addWidget(subwgt)
 
@@ -130,6 +134,9 @@ class DailyDocumentWidget(QWidget):
         self._dateEditSearch.setDate(QDate(now.year, now.month, now.day))
 
         self._btnRefresh.clicked.connect(self.refresh)
+        self._btnRefresh.setIcon(QIcon('./Resource/refresh.png'))
+        self._btnSaveCsv.clicked.connect(self.saveCsvFile)
+        self._btnSaveCsv.setIcon(QIcon('./Resource/excel.png'))
 
         btngrp = QButtonGroup()
         btngrp.addButton(self._radioClassY)
@@ -185,9 +192,20 @@ class DailyDocumentWidget(QWidget):
             corpClass = None
 
         self._df_daily_list = self._opendart.getDailyUploadedDocuments(dateSearch, corpClass)
-        msg = f'Total: {len(self._df_daily_list)}'
+        msg = f'검색 레코드 수: {len(self._df_daily_list)}'
         self._lblResult.setText(msg)
         self.drawTable()
+
+    def saveCsvFile(self):
+        df = getDataFrameFromTableWidget(self._table)
+        if not df.empty:
+            options = QFileDialog.Options()
+            path, _ = QFileDialog.getSaveFileName(self, 'Select File', 'result',
+                                                  'Csv Format (*.csv)', options=options)
+            if path:
+                df.to_csv(path, index=False)
+        else:
+            QMessageBox.warning(self, 'Warning', '파일 저장 불가 - 빈 테이블')
 
     def drawTable(self):
         self._table.setRowCount(0)

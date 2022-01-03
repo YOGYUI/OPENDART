@@ -1,4 +1,5 @@
 from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QDialog, QWidget, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout
 
 
@@ -13,6 +14,7 @@ class SetApiKeyDialog(QDialog):
         self.initControl()
         self.initLayout()
         self.setWindowTitle('OpenDART API Key 설정')
+        self.setWindowIcon(QIcon('./Resource/key.png'))
         self.setMinimumWidth(400)
 
     def initLayout(self):
@@ -32,7 +34,9 @@ class SetApiKeyDialog(QDialog):
     def initControl(self):
         self._editApiKey.setPlaceholderText('OEPNDART API Key를 입력하세요')
         self._btnApply.clicked.connect(self.onClickBtnApply)
+        self._btnApply.setIcon(QIcon('./Resource/check.png'))
         self._btnCancel.clicked.connect(self.onClickBtnCancel)
+        self._btnCancel.setIcon(QIcon('./Resource/cancel.png'))
 
     def onClickBtnApply(self):
         key_string = self._editApiKey.text()
